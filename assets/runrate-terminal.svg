@@ -1,0 +1,33 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="720" rx="18" fill="#101417"/>
+  <rect x="36" y="34" width="1128" height="652" rx="12" fill="#0B0F12" stroke="#2D3740" stroke-width="2"/>
+  <text x="64" y="80" fill="#7EE787" font-family="Menlo, Consolas, monospace" font-size="28" font-weight="700">Runrate</text>
+  <text x="194" y="80" fill="#9AA7B2" font-family="Menlo, Consolas, monospace" font-size="20">scope: Global | window: 1h | live | pricing: hybrid | adapters: codex</text>
+  <g font-family="Menlo, Consolas, monospace">
+    <text x="64" y="132" fill="#9AA7B2" font-size="15">Cost</text>
+    <text x="64" y="160" fill="#F2C94C" font-size="28">$2.84</text>
+    <text x="212" y="132" fill="#9AA7B2" font-size="15">Tokens</text>
+    <text x="212" y="160" fill="#7EE787" font-size="28">428.2K</text>
+    <text x="388" y="132" fill="#9AA7B2" font-size="15">Input</text>
+    <text x="388" y="160" fill="#6CB6FF" font-size="28">318.0K</text>
+    <text x="552" y="132" fill="#9AA7B2" font-size="15">Output</text>
+    <text x="552" y="160" fill="#7EE787" font-size="28">42.6K</text>
+    <text x="728" y="132" fill="#9AA7B2" font-size="15">Reasoning</text>
+    <text x="728" y="160" fill="#D2A8FF" font-size="28">16.8K</text>
+    <text x="920" y="132" fill="#9AA7B2" font-size="15">Cache hit</text>
+    <text x="920" y="160" fill="#56D4DD" font-size="28">71.4%</text>
+  </g>
+  <rect x="64" y="202" width="1072" height="188" rx="8" fill="#101820" stroke="#26313A"/>
+  <text x="84" y="238" fill="#E6EDF3" font-family="Menlo, Consolas, monospace" font-size="18" font-weight="700">Token usage</text>
+  <g transform="translate(88 270)" fill="#7EE787">
+    <rect x="0" y="88" width="12" height="36"/><rect x="20" y="72" width="12" height="52"/><rect x="40" y="82" width="12" height="42"/><rect x="60" y="56" width="12" height="68"/><rect x="80" y="45" width="12" height="79"/><rect x="100" y="68" width="12" height="56"/><rect x="120" y="34" width="12" height="90"/><rect x="140" y="18" width="12" height="106"/><rect x="160" y="42" width="12" height="82"/><rect x="180" y="24" width="12" height="100"/><rect x="200" y="10" width="12" height="114"/><rect x="220" y="54" width="12" height="70"/><rect x="240" y="38" width="12" height="86"/><rect x="260" y="76" width="12" height="48"/><rect x="280" y="58" width="12" height="66"/><rect x="300" y="28" width="12" height="96"/><rect x="320" y="16" width="12" height="108"/><rect x="340" y="46" width="12" height="78"/><rect x="360" y="62" width="12" height="62"/><rect x="380" y="20" width="12" height="104"/><rect x="400" y="36" width="12" height="88"/><rect x="420" y="52" width="12" height="72"/><rect x="440" y="14" width="12" height="110"/><rect x="460" y="32" width="12" height="92"/><rect x="480" y="44" width="12" height="80"/><rect x="500" y="70" width="12" height="54"/><rect x="520" y="26" width="12" height="98"/><rect x="540" y="48" width="12" height="76"/><rect x="560" y="8" width="12" height="116"/><rect x="580" y="22" width="12" height="102"/><rect x="600" y="40" width="12" height="84"/><rect x="620" y="56" width="12" height="68"/><rect x="640" y="18" width="12" height="106"/><rect x="660" y="66" width="12" height="58"/><rect x="680" y="30" width="12" height="94"/><rect x="700" y="12" width="12" height="112"/><rect x="720" y="36" width="12" height="88"/><rect x="740" y="50" width="12" height="74"/><rect x="760" y="24" width="12" height="100"/><rect x="780" y="42" width="12" height="82"/><rect x="800" y="64" width="12" height="60"/><rect x="820" y="28" width="12" height="96"/><rect x="840" y="16" width="12" height="108"/><rect x="860" y="46" width="12" height="78"/><rect x="880" y="34" width="12" height="90"/><rect x="900" y="20" width="12" height="104"/><rect x="920" y="54" width="12" height="70"/><rect x="940" y="72" width="12" height="52"/>
+  </g>
+  <rect x="64" y="420" width="1072" height="186" rx="8" fill="#101820" stroke="#26313A"/>
+  <text x="84" y="456" fill="#E6EDF3" font-family="Menlo, Consolas, monospace" font-size="18" font-weight="700">Live sessions</text>
+  <g font-family="Menlo, Consolas, monospace" font-size="17">
+    <text x="84" y="496" fill="#9AA7B2">Time       Workspace          Session   Models                    Tokens       Cost      State</text>
+    <text x="84" y="532" fill="#E6EDF3">19:34:18   runrate            019e175a  gpt-5.5, gpt-5.4-mini    428.2K      $2.84     active</text>
+    <text x="84" y="566" fill="#E6EDF3">16:44:28   livecart           019e16be  gpt-5.4                  182.7K      $1.22     idle</text>
+  </g>
+  <text x="64" y="650" fill="#9AA7B2" font-family="Menlo, Consolas, monospace" font-size="18">g global  ←/→ window  t tokens  $ cost  r rate  h cache  a sessions  q quit</text>
+</svg>

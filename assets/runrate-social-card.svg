@@ -1,0 +1,12 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#0B0F12"/>
+  <rect x="74" y="72" width="1052" height="486" rx="18" fill="#101820" stroke="#2D3740" stroke-width="2"/>
+  <text x="112" y="168" fill="#7EE787" font-family="Inter, Arial, sans-serif" font-size="78" font-weight="800">Runrate</text>
+  <text x="116" y="224" fill="#E6EDF3" font-family="Inter, Arial, sans-serif" font-size="34">Realtime token, cache, and cost telemetry for AI coding agents.</text>
+  <g font-family="Menlo, Consolas, monospace">
+    <rect x="116" y="292" width="968" height="170" rx="10" fill="#0B0F12" stroke="#26313A"/>
+    <text x="146" y="342" fill="#9AA7B2" font-size="24">Cost $2.84   Tokens 428.2K   Cache hit 71.4%   Active sessions 2</text>
+    <text x="146" y="394" fill="#7EE787" font-size="36">▁▃▂▄▅▃▆█▄▇█▅▆▃▄▇█▄▅▇▆▄█▆▄▅█▇▆▅█▃▆█▆▅▇▄▆█</text>
+  </g>
+  <text x="116" y="516" fill="#9AA7B2" font-family="Inter, Arial, sans-serif" font-size="26">Local-first. Adapter-driven. Built for Codex first.</text>
+</svg>
