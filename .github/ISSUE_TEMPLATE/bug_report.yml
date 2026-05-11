@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a wrong total, parser issue, UI bug, or crash.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please do not paste private prompts, secrets, API keys, or full raw provider logs.
+  - type: input
+    id: version
+    attributes:
+      label: Runrate version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: adapter
+    attributes:
+      label: Adapter/provider
+      options:
+        - Codex
+        - Claude Code
+        - Web dashboard
+        - CLI
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the incorrect behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include steps, commands, and redacted fixture snippets if possible.
+      render: markdown
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, package manager, provider CLI version, pricing mode.
+      render: markdown
+    validations:
+      required: false

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Support guide
+    url: https://github.com/crup/runrate/blob/main/SUPPORT.md
+    about: Read what details help maintainers reproduce local parser and pricing issues.
+  - name: Security report
+    url: mailto:connect@rajender.pro
+    about: Please report security issues privately.

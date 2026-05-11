@@ -1,0 +1,26 @@
+# source and tests
+src/
+tests/
+fixtures/
+.github/
+.changeset/
+assets/
+scripts/
+
+# configs
+*.config.ts
+*.config.js
+tsconfig.json
+eslint.config.*
+.prettierrc*
+
+# local/dev files
+node_modules/
+coverage/
+.env
+.env.*
+.DS_Store
+*.log
+
+# package manager internals
+.pnpm-store/

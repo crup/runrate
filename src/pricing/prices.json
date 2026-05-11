@@ -1,0 +1,65 @@
+[
+  {
+    "provider": "openai",
+    "modelId": "gpt-5",
+    "inputPerMillionUsd": 1.25,
+    "outputPerMillionUsd": 10,
+    "cacheReadPerMillionUsd": 0.125,
+    "updatedAt": "2026-05-11",
+    "source": "bundled"
+  },
+  {
+    "provider": "openai",
+    "modelId": "gpt-5.5",
+    "inputPerMillionUsd": 5,
+    "outputPerMillionUsd": 30,
+    "cacheReadPerMillionUsd": 0.5,
+    "updatedAt": "2026-05-11",
+    "source": "bundled"
+  },
+  {
+    "provider": "openai",
+    "modelId": "gpt-5.4",
+    "inputPerMillionUsd": 2.5,
+    "outputPerMillionUsd": 15,
+    "cacheReadPerMillionUsd": 0.25,
+    "updatedAt": "2026-05-11",
+    "source": "bundled"
+  },
+  {
+    "provider": "openai",
+    "modelId": "gpt-5.4-mini",
+    "inputPerMillionUsd": 0.75,
+    "outputPerMillionUsd": 4.5,
+    "cacheReadPerMillionUsd": 0.075,
+    "updatedAt": "2026-05-11",
+    "source": "bundled"
+  },
+  {
+    "provider": "openai",
+    "modelId": "gpt-5.4-nano",
+    "inputPerMillionUsd": 0.2,
+    "outputPerMillionUsd": 1.25,
+    "cacheReadPerMillionUsd": 0.02,
+    "updatedAt": "2026-05-11",
+    "source": "bundled"
+  },
+  {
+    "provider": "openai",
+    "modelId": "gpt-5.3-codex",
+    "inputPerMillionUsd": 1.75,
+    "outputPerMillionUsd": 14,
+    "cacheReadPerMillionUsd": 0.175,
+    "updatedAt": "2026-05-11",
+    "source": "bundled"
+  },
+  {
+    "provider": "openai",
+    "modelId": "gpt-5.2",
+    "inputPerMillionUsd": 1.75,
+    "outputPerMillionUsd": 14,
+    "cacheReadPerMillionUsd": 0.175,
+    "updatedAt": "2026-05-11",
+    "source": "bundled"
+  }
+]
