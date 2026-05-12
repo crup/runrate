@@ -2,6 +2,25 @@ export type PricingMode = "vendor" | "calculated" | "hybrid" | "compare";
 
 export type ScopeKind = "global" | "account" | "workspace" | "session" | "billing-block";
 
+export type UsageCategoryId =
+  | "coding"
+  | "feature-dev"
+  | "debugging"
+  | "testing"
+  | "build-deploy"
+  | "git-ops"
+  | "refactoring"
+  | "exploration"
+  | "conversation"
+  | "delegation"
+  | "docs"
+  | "other";
+
+export interface UsageCategory {
+  id: UsageCategoryId;
+  label: string;
+}
+
 export interface ActiveScope {
   kind: ScopeKind;
   value?: string | undefined;
@@ -45,6 +64,7 @@ export interface NormalizedUsageEvent {
     rawCursor: string;
     replayed?: boolean | undefined;
     inferredModel?: boolean | undefined;
+    category?: UsageCategory | undefined;
     warnings?: string[] | undefined;
   };
 }
@@ -88,6 +108,12 @@ export interface ProviderSummary {
   totals: UsageTotals;
 }
 
+export interface CategoryBreakdown {
+  category: UsageCategory;
+  eventCount: number;
+  totals: UsageTotals;
+}
+
 export interface RunrateExport {
   generatedAt: string;
   window: string;
@@ -98,6 +124,7 @@ export interface RunrateExport {
   sessions: SessionSummary[];
   models: ModelBreakdown[];
   providers: ProviderSummary[];
+  categories: CategoryBreakdown[];
 }
 
 export const emptyTokenSnapshot = (): TokenSnapshot => ({

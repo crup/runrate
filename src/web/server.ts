@@ -7,6 +7,7 @@ import { aggregateEvents } from "../core/aggregate.js";
 import type { ActiveScope, PricingMode, RunrateExport } from "../core/event.js";
 import type { WindowPreset } from "../core/windows.js";
 import { collectUsageEvents } from "../adapters/registry.js";
+import { buildCodexSessionDebug } from "../adapters/codex/debug.js";
 
 type PeriodPreset =
   | "today"
@@ -15,6 +16,7 @@ type PeriodPreset =
   | "last-week"
   | "this-month"
   | "last-month"
+  | "30d"
   | "all-time";
 type PlotPreset = "auto" | "1m" | "5m" | "15m" | "1h" | "1d";
 
@@ -72,6 +74,7 @@ const periodOptions: PeriodOption[] = [
   { value: "last-week", label: "Last week" },
   { value: "this-month", label: "This month" },
   { value: "last-month", label: "Last month" },
+  { value: "30d", label: "30 days" },
   { value: "all-time", label: "All time" },
 ];
 
@@ -145,6 +148,11 @@ const handleRequest = async (
       return;
     }
 
+    if (url.pathname === "/api/session-debug") {
+      sendJson(response, 200, await loadSessionDebugResponse(options, url.searchParams));
+      return;
+    }
+
     if (url.pathname === "/api/dev/revision" && isDevMode()) {
       sendJson(response, 200, {
         revision: process.env.RUNRATE_DEV_REVISION ?? "dev",
@@ -158,6 +166,37 @@ const handleRequest = async (
       error: (error as Error).message,
     });
   }
+};
+
+const loadSessionDebugResponse = async (options: WebDashboardOptions, params: URLSearchParams) => {
+  const provider = params.get("provider") ?? "";
+  const sessionId = params.get("session") ?? "";
+  if (provider !== "codex") {
+    throw new Error("Session debugger is currently available for Codex sessions only.");
+  }
+  if (!sessionId) {
+    throw new Error("Missing session id.");
+  }
+
+  const period = readPeriod(params.get("period"));
+  const range = resolvePeriodRange(period, new Date());
+  const { events } = await collectUsageEvents({
+    pricingMode: options.pricingMode,
+    timezone: options.timezone,
+    sinceMs: range.sinceMs === null ? undefined : range.sinceMs,
+    normalizeBatchSize: NORMALIZE_BATCH_SIZE,
+  });
+  const matching = events.filter(
+    (event) =>
+      event.provider === "codex" &&
+      event.nativeSessionId === sessionId &&
+      eventMatchesPeriod(event.occurredAt, range),
+  );
+  return buildCodexSessionDebug({
+    events: matching,
+    pricingMode: options.pricingMode,
+    sessionId,
+  });
 };
 
 const loadUsageResponse = async (
@@ -317,6 +356,8 @@ const resolvePeriodRange = (period: PeriodPreset, now: Date): PeriodRange => {
         sinceMs: lastMonth.getTime(),
         untilMs: month.getTime(),
       };
+    case "30d":
+      return { value: period, label: "30 days", sinceMs: nowMs - 30 * DAY_MS, untilMs: nowMs };
     case "all-time":
       return { value: period, label: "All time", sinceMs: null, untilMs: nowMs };
     case "today":
@@ -329,6 +370,15 @@ const minimumSince = (range: PeriodRange, binMs: number): number | undefined => 
     return undefined;
   }
   return Math.max(0, range.sinceMs - binMs);
+};
+
+const eventMatchesPeriod = (occurredAt: string, range: PeriodRange): boolean => {
+  const occurredMs = Date.parse(occurredAt);
+  return (
+    Number.isFinite(occurredMs) &&
+    (range.sinceMs === null || occurredMs >= range.sinceMs) &&
+    occurredMs <= range.untilMs
+  );
 };
 
 const readPeriod = (value: string | null): PeriodPreset => {

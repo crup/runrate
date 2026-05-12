@@ -10,7 +10,7 @@ import type {
   UsageAdapter,
 } from "../sdk.js";
 import { resolveCost } from "../../core/pricing.js";
-import type { NormalizedUsageEvent, TokenSnapshot } from "../../core/event.js";
+import type { NormalizedUsageEvent, TokenSnapshot, UsageCategory } from "../../core/event.js";
 import {
   expandHome,
   hashString,
@@ -35,6 +35,8 @@ interface CodexCumulativeUsage {
   reasoning: number;
   total: number;
 }
+
+const defaultCategory: UsageCategory = { id: "coding", label: "Coding" };
 
 export const codexAdapter: UsageAdapter = {
   sdkVersion: 1,
@@ -107,6 +109,7 @@ export const codexAdapter: UsageAdapter = {
     ctx: NormalizeContext,
   ): Promise<NormalizedUsageEvent[]> {
     const metadataByLine = buildMetadataTimeline(records);
+    const categoryByLine = buildCategoryTimeline(records);
     const previousUsageByFile = new Map<string, CodexCumulativeUsage>();
     const seenCodexCalls = new Set<string>();
     const events: NormalizedUsageEvent[] = [];
@@ -160,6 +163,8 @@ export const codexAdapter: UsageAdapter = {
       const metadata =
         metadataByLine.get(`${payload.filePath}:${payload.lineNumber}`) ??
         fallbackMetadata(payload.filePath);
+      const category =
+        categoryByLine.get(`${payload.filePath}:${payload.lineNumber}`) ?? defaultCategory;
       const timestamp =
         stringValue(value, "timestamp") ?? metadataTimestamp(metadata) ?? new Date().toISOString();
       const resolvedModelId = modelFromRecord(value) ?? metadata.model;
@@ -195,6 +200,7 @@ export const codexAdapter: UsageAdapter = {
           sourcePath: payload.filePath,
           adapterVersion: ADAPTER_VERSION,
           rawCursor: record.cursor,
+          category,
           inferredModel: resolvedModelId === undefined,
           warnings:
             resolvedModelId === undefined
@@ -206,6 +212,44 @@ export const codexAdapter: UsageAdapter = {
 
     return events;
   },
+};
+
+const buildCategoryTimeline = (records: RawAdapterRecord[]): Map<string, UsageCategory> => {
+  const currentByFile = new Map<string, UsageCategory>();
+  const byLine = new Map<string, UsageCategory>();
+
+  const sortedRecords = [...records].sort((a, b) => {
+    if (a.sourcePath !== b.sourcePath) {
+      return a.sourcePath.localeCompare(b.sourcePath);
+    }
+    const left = unwrapCodexPayload(a.payload)?.lineNumber ?? 0;
+    const right = unwrapCodexPayload(b.payload)?.lineNumber ?? 0;
+    return left - right;
+  });
+
+  for (const record of sortedRecords) {
+    const payload = unwrapCodexPayload(record.payload);
+    if (!payload) {
+      continue;
+    }
+    const value = payload.value;
+    const eventPayload = objectValue(value, "payload");
+    const categoryPayload = objectValue(eventPayload, "category");
+    const id = stringValue(categoryPayload, "id") as UsageCategory["id"] | undefined;
+    const label = stringValue(categoryPayload, "label");
+    const rawCategory = categoryFromRecord(value);
+    if (id && label) {
+      currentByFile.set(payload.filePath, { id, label });
+    } else if (rawCategory) {
+      currentByFile.set(payload.filePath, rawCategory);
+    }
+    byLine.set(
+      `${payload.filePath}:${payload.lineNumber}`,
+      currentByFile.get(payload.filePath) ?? defaultCategory,
+    );
+  }
+
+  return byLine;
 };
 
 const readInstallationId = async (root: string): Promise<string> => {
@@ -382,7 +426,8 @@ const slimCodexValue = (value: unknown): Record<string, unknown> | null => {
   }
 
   const model = modelFromRecord(value);
-  if (!model) {
+  const category = categoryFromRecord(value);
+  if (!model && !category) {
     return null;
   }
 
@@ -391,10 +436,76 @@ const slimCodexValue = (value: unknown): Record<string, unknown> | null => {
     timestamp,
     payload: {
       model,
+      category,
       info: pickStringFields(info, ["model", "model_name"]),
       collaboration_mode: objectValue(payload, "collaboration_mode"),
     },
   };
+};
+
+const categoryFromRecord = (value: unknown): UsageCategory | undefined => {
+  const payload = objectValue(value, "payload");
+  const payloadType = stringValue(payload, "type");
+  if (payloadType === "agent_message") {
+    return undefined;
+  }
+  const signal = [
+    stringValue(payload, "message"),
+    stringValue(payload, "name"),
+    stringValue(payload, "arguments"),
+    stringValue(payload, "output"),
+    textFromContent(payload?.content),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+  if (!signal) {
+    return undefined;
+  }
+
+  if (/\b(subagent|delegate|delegation|spawn_agent|worker|explorer)\b/.test(signal)) {
+    return { id: "delegation", label: "Delegation" };
+  }
+  if (/\b(git|commit|push|pull|branch|tag|release create|gh release)\b/.test(signal)) {
+    return { id: "git-ops", label: "Git Ops" };
+  }
+  if (
+    /\b(debug|bug|crash|error|fail|failing|mismatch|oom|out of memory|wrong|broken)\b/.test(signal)
+  ) {
+    return { id: "debugging", label: "Debugging" };
+  }
+  if (/\b(test|vitest|jest|playwright|coverage|fixture|assert|regression)\b/.test(signal)) {
+    return { id: "testing", label: "Testing" };
+  }
+  if (/\b(build|deploy|publish|ci|workflow|github actions|npm pack|npm release)\b/.test(signal)) {
+    return { id: "build-deploy", label: "Build/Release" };
+  }
+  if (/\b(refactor|cleanup|clean up|remove bloat|simplify|restructure)\b/.test(signal)) {
+    return { id: "refactoring", label: "Refactoring" };
+  }
+  if (/\b(readme|docs|documentation|contributing|license|screenshot|copy|post)\b/.test(signal)) {
+    return { id: "docs", label: "Docs/Content" };
+  }
+  if (/\b(review|inspect|research|compare|check|verify|investigate|look up|find)\b/.test(signal)) {
+    return { id: "exploration", label: "Exploration" };
+  }
+  if (/\b(feature|implement|add|create|wire|integrate|support|ui|dashboard)\b/.test(signal)) {
+    return { id: "feature-dev", label: "Feature Dev" };
+  }
+  if (/\b(explain|why|how|question|think|idea|should we|can we)\b/.test(signal)) {
+    return { id: "conversation", label: "Conversation" };
+  }
+  return defaultCategory;
+};
+
+const textFromContent = (content: unknown): string | undefined => {
+  if (!Array.isArray(content)) {
+    return undefined;
+  }
+  return content
+    .map((item) => (isRecord(item) ? stringValue(item, "text") : undefined))
+    .filter(Boolean)
+    .join("\n");
 };
 
 const extractTimestamp = (value: unknown): string | undefined => stringValue(value, "timestamp");

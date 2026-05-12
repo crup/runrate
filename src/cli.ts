@@ -3,6 +3,7 @@ import type { PricingMode, ScopeKind } from "./core/event.js";
 import { createScope } from "./core/scope.js";
 import { parseWindow } from "./core/windows.js";
 import { runWebDashboard } from "./web/server.js";
+import { VERSION } from "./version.js";
 
 interface LauncherOptions {
   account?: string | undefined;
@@ -69,7 +70,7 @@ const parseArgs = (argv: string[]): LauncherOptions => {
       process.exit(0);
     }
     if (arg === "--version" || arg === "-v" || arg === "-V") {
-      process.stdout.write("0.1.0\n");
+      process.stdout.write(`${VERSION}\n`);
       process.exit(0);
     }
     if (arg === "--no-open") {

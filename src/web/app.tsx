@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -5,6 +6,7 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowUp,
+  Bug,
   Check,
   ChevronDown,
   Cpu,
@@ -38,6 +40,7 @@ type PeriodPreset =
   | "last-week"
   | "this-month"
   | "last-month"
+  | "30d"
   | "all-time";
 type PlotPreset = "auto" | "1m" | "5m" | "15m" | "1h" | "1d";
 type SessionState = "active" | "idle" | "stale" | "closed";
@@ -46,6 +49,8 @@ type ChartScale = "linear" | "log";
 type SessionListMode = "workspace" | "session";
 type TokenSeriesKey = "input" | "output" | "reasoning";
 type RefreshIntervalMs = 15_000 | 30_000 | 60_000 | 300_000;
+type CheckpointDriverFilter = "all" | "input" | "output" | "reasoning" | "cache";
+type CheckpointSort = "cost" | "tokens" | "time";
 
 interface UsageTotals {
   inputFresh: number;
@@ -90,6 +95,12 @@ interface ProviderSummary {
   totals: UsageTotals;
 }
 
+interface CategoryBreakdown {
+  category: { id: string; label: string };
+  eventCount: number;
+  totals: UsageTotals;
+}
+
 interface RunrateExport {
   generatedAt: string;
   window: string;
@@ -100,6 +111,7 @@ interface RunrateExport {
   sessions: SessionSummary[];
   models: ModelBreakdown[];
   providers: ProviderSummary[];
+  categories: CategoryBreakdown[];
 }
 
 interface UsageResponse {
@@ -110,6 +122,44 @@ interface UsageResponse {
   pollMs: number;
   generatedAt: string;
   data: RunrateExport;
+}
+
+interface SessionDebugContext {
+  kind: "prompt" | "tool" | "signal";
+  label: string;
+  text: string;
+  timestamp?: string | undefined;
+  lineNumber: number;
+}
+
+interface SessionDebugEvent {
+  id: string;
+  lineNumber: number;
+  occurredAt: string;
+  modelId: string;
+  category?: { id: string; label: string } | undefined;
+  usage: Pick<UsageTotals, "inputFresh" | "output" | "reasoning" | "cacheRead" | "cacheWrite">;
+  totalTokens: number;
+  costUsd: number;
+  culpritScore: number;
+  culpritReason: "input" | "output" | "reasoning" | "cache" | "cost";
+  prompt?: string | undefined;
+  promptTruncated?: boolean | undefined;
+  context: SessionDebugContext[];
+}
+
+interface SessionDebugResponse {
+  provider: "codex";
+  sessionId: string;
+  workspace?: string | undefined;
+  generatedAt: string;
+  sourceCount: number;
+  totals: Pick<
+    UsageTotals,
+    "inputFresh" | "output" | "reasoning" | "cacheRead" | "cacheWrite" | "totalTokens" | "costUsd"
+  >;
+  events: SessionDebugEvent[];
+  culprits: SessionDebugEvent[];
 }
 
 interface ChartPoint {
@@ -145,6 +195,7 @@ type UiSession = {
 };
 
 type WorkspaceRow = UiSession & {
+  debugSession?: UiSession | undefined;
   sessionCount: number;
 };
 
@@ -155,6 +206,7 @@ const defaultPeriods: UsageResponse["periods"] = [
   { value: "last-week", label: "Last week" },
   { value: "this-month", label: "This month" },
   { value: "last-month", label: "Last month" },
+  { value: "30d", label: "30 days" },
   { value: "all-time", label: "All time" },
 ];
 
@@ -184,6 +236,20 @@ const tokenSeries: Array<{ color: string; key: TokenSeriesKey; label: string }> 
   { color: "var(--token-output)", key: "output", label: "Output" },
   { color: "var(--token-reasoning)", key: "reasoning", label: "Reasoning" },
 ];
+const categoryColorById: Record<string, string> = {
+  coding: "var(--category-coding)",
+  "feature-dev": "var(--category-feature)",
+  debugging: "var(--category-debug)",
+  testing: "var(--category-test)",
+  "build-deploy": "var(--category-build)",
+  "git-ops": "var(--category-git)",
+  refactoring: "var(--category-refactor)",
+  exploration: "var(--category-exploration)",
+  conversation: "var(--category-conversation)",
+  delegation: "var(--category-delegation)",
+  docs: "var(--category-docs)",
+  other: "var(--category-other)",
+};
 const hourMs = 60 * 60_000;
 const dayMs = 24 * hourMs;
 const refreshIntervals: Array<{ label: string; value: RefreshIntervalMs }> = [
@@ -191,6 +257,18 @@ const refreshIntervals: Array<{ label: string; value: RefreshIntervalMs }> = [
   { label: "30s", value: 30_000 },
   { label: "1m", value: 60_000 },
   { label: "5m", value: 300_000 },
+];
+const checkpointDriverFilters: Array<{ label: string; value: CheckpointDriverFilter }> = [
+  { label: "All", value: "all" },
+  { label: "Input", value: "input" },
+  { label: "Output", value: "output" },
+  { label: "Reasoning", value: "reasoning" },
+  { label: "Cache", value: "cache" },
+];
+const checkpointSorts: Array<{ label: string; value: CheckpointSort }> = [
+  { label: "Cost", value: "cost" },
+  { label: "Tokens", value: "tokens" },
+  { label: "Time", value: "time" },
 ];
 
 type StoredPrefs = {
@@ -289,6 +367,10 @@ function App() {
   const [response, setResponse] = useState<UsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [debugSession, setDebugSession] = useState<UiSession | null>(null);
+  const [debugData, setDebugData] = useState<SessionDebugResponse | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugError, setDebugError] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -436,6 +518,31 @@ function App() {
     window.URL.revokeObjectURL(url);
   };
 
+  const openSessionDebugger = async (session: UiSession) => {
+    setDebugSession(session);
+    setDebugData(null);
+    setDebugError(null);
+    setDebugLoading(true);
+    try {
+      const params = new URLSearchParams({
+        period,
+        provider: session.provider,
+        session: session.id,
+      });
+      const result = await fetch(`/api/session-debug?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!result.ok) {
+        throw new Error(await result.text());
+      }
+      setDebugData((await result.json()) as SessionDebugResponse);
+    } catch (loadError) {
+      setDebugError((loadError as Error).message);
+    } finally {
+      setDebugLoading(false);
+    }
+  };
+
   return (
     <>
       <style>{styles}</style>
@@ -549,13 +656,16 @@ function App() {
               </section>
 
               <section className="grid-12">
-                <CompositionCard totals={totals} />
-                <ProviderCard providers={data?.providers ?? []} total={totals.totalTokens} />
-                <CostMiniChart chartData={chartData} cost={totals.costUsd} />
+                <UsageCategoryCard categories={data?.categories ?? []} total={totals.totalTokens} />
+                <div className="overview-side-stack">
+                  <CompositionCard totals={totals} />
+                  <CostMiniChart chartData={chartData} cost={totals.costUsd} />
+                </div>
               </section>
 
               <SessionsTable
                 mode={sessionListMode}
+                onDebugSession={openSessionDebugger}
                 sessions={sessions}
                 setMode={setSessionListMode}
                 spendThresholds={spendThresholds}
@@ -566,6 +676,7 @@ function App() {
           {activeView === "sessions" ? (
             <SessionsTable
               mode={sessionListMode}
+              onDebugSession={openSessionDebugger}
               sessions={sessions}
               setMode={setSessionListMode}
               spendThresholds={spendThresholds}
@@ -592,8 +703,11 @@ function App() {
                 <CostMiniChart chartData={chartData} cost={totals.costUsd} />
               </section>
               <section className="grid-12">
-                <CompositionCard totals={totals} />
-                <ProviderCard providers={data?.providers ?? []} total={totals.totalTokens} />
+                <UsageCategoryCard categories={data?.categories ?? []} total={totals.totalTokens} />
+                <div className="overview-side-stack">
+                  <CompositionCard totals={totals} />
+                  <ProviderCard providers={data?.providers ?? []} total={totals.totalTokens} />
+                </div>
               </section>
             </>
           ) : null}
@@ -616,6 +730,17 @@ function App() {
 
           <footer className="footer">Runrate · local-first · no data leaves your machine</footer>
         </main>
+        <SessionDebuggerDrawer
+          data={debugData}
+          error={debugError}
+          loading={debugLoading}
+          onClose={() => {
+            setDebugSession(null);
+            setDebugData(null);
+            setDebugError(null);
+          }}
+          session={debugSession}
+        />
       </div>
     </>
   );
@@ -1246,6 +1371,53 @@ function CompositionCard({ totals }: { totals: UsageTotals }) {
   );
 }
 
+function UsageCategoryCard({
+  categories,
+  total,
+}: {
+  categories: CategoryBreakdown[];
+  total: number;
+}) {
+  const visible = categories.slice(0, 8);
+  return (
+    <section className="panel usage-category-panel">
+      <div className="panel-head">
+        <div>
+          <h3>Usage categories</h3>
+          <p>Inferred from local Codex session signals</p>
+        </div>
+      </div>
+      <div className="category-list">
+        {visible.length ? (
+          visible.map((item) => {
+            const share = total > 0 ? item.totals.totalTokens / total : 0;
+            const color = categoryColorById[item.category.id] ?? "var(--category-other)";
+            return (
+              <div className="category-row" key={item.category.id}>
+                <div>
+                  <span style={{ background: color }} />
+                  <p>{item.category.label}</p>
+                  <strong>{formatCost(item.totals.costUsd)}</strong>
+                </div>
+                <div>
+                  <em>{item.eventCount} events</em>
+                  <em>{formatPercent(item.totals.cacheHitRatio ?? 0)} cache</em>
+                  <em>{formatNumber(item.totals.totalTokens)}</em>
+                </div>
+                <div className="mini-track">
+                  <span style={{ background: color, width: `${share * 100}%` }} />
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <p className="empty">No categories detected.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ProviderCard({ providers, total }: { providers: ProviderSummary[]; total: number }) {
   return (
     <section className="panel third">
@@ -1320,11 +1492,13 @@ function CostMiniChart({ chartData, cost }: { chartData: ChartPoint[]; cost: num
 
 function SessionsTable({
   mode,
+  onDebugSession,
   sessions,
   setMode,
   spendThresholds,
 }: {
   mode: SessionListMode;
+  onDebugSession: (session: UiSession) => void;
   sessions: UiSession[];
   setMode: (value: SessionListMode) => void;
   spendThresholds: SpendThresholds;
@@ -1470,6 +1644,7 @@ function SessionsTable({
               {header("Cache", "cacheHitRatio", "right")}
               {header("State", "state")}
               {header("Activity", "lastActivity", "right")}
+              <th className="right">Debug</th>
             </tr>
           </thead>
           <tbody>
@@ -1479,6 +1654,7 @@ function SessionsTable({
                 const costTone = getSpendTone(session.cost, spendThresholds);
                 const highCost = costTone !== "normal";
                 const lowCache = session.cacheHitRatio > 0 && session.cacheHitRatio < 0.25;
+                const debugTarget = getDebugTarget(session);
                 return (
                   <tr key={`${session.provider}:${session.id}`}>
                     <td>
@@ -1522,12 +1698,31 @@ function SessionsTable({
                       <StateBadge state={session.state} />
                     </td>
                     <td className="right mono muted">{session.lastActivityRelative}</td>
+                    <td className="right">
+                      {debugTarget ? (
+                        <button
+                          className="debug-session-btn"
+                          onClick={() => onDebugSession(debugTarget)}
+                          title={
+                            mode === "workspace"
+                              ? "Debug highest-cost Codex session in this workspace"
+                              : "Debug token culprits"
+                          }
+                          type="button"
+                        >
+                          <Bug className="icon" />
+                          <span>Debug</span>
+                        </button>
+                      ) : (
+                        <span className="muted">--</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })
             ) : (
               <tr>
-                <td className="empty-row" colSpan={9}>
+                <td className="empty-row" colSpan={10}>
                   No sessions match your filters.
                 </td>
               </tr>
@@ -1537,6 +1732,342 @@ function SessionsTable({
       </div>
     </section>
   );
+}
+
+function SessionDebuggerDrawer({
+  data,
+  error,
+  loading,
+  onClose,
+  session,
+}: {
+  data: SessionDebugResponse | null;
+  error: string | null;
+  loading: boolean;
+  onClose: () => void;
+  session: UiSession | null;
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [driverFilter, setDriverFilter] = useState<CheckpointDriverFilter>("all");
+  const [checkpointSort, setCheckpointSort] = useState<CheckpointSort>("cost");
+  const filteredCheckpoints = useMemo(
+    () => filterDebugEvents(data?.events ?? [], driverFilter),
+    [data, driverFilter],
+  );
+  const allCheckpoints = useMemo(
+    () => sortDebugEvents(filteredCheckpoints, checkpointSort),
+    [checkpointSort, filteredCheckpoints],
+  );
+  const costliestCheckpoints = useMemo(
+    () => sortDebugEvents(filteredCheckpoints, "cost").slice(0, 8),
+    [filteredCheckpoints],
+  );
+  useEffect(() => {
+    setSelectedId(costliestCheckpoints[0]?.id ?? allCheckpoints[0]?.id ?? null);
+  }, [allCheckpoints, costliestCheckpoints, data]);
+  useEffect(() => {
+    if (!data) {
+      setDriverFilter("all");
+      setCheckpointSort("cost");
+    }
+  }, [data]);
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose, session]);
+  if (!session) {
+    return null;
+  }
+  const selected =
+    data?.events.find((event) => event.id === selectedId) ??
+    costliestCheckpoints[0] ??
+    data?.events[0] ??
+    null;
+  return (
+    <div className="debug-overlay">
+      <button aria-label="Close debugger" className="debug-backdrop" onClick={onClose} />
+      <aside className="debug-drawer">
+        <div className="debug-head">
+          <div>
+            <h3>Session cost debugger</h3>
+            <p title={session.id}>{session.id}</p>
+            <small>
+              Checkpoints are local Codex token-count snapshots with nearby prompt context.
+            </small>
+          </div>
+          <button className="icon-btn" onClick={onClose} type="button">
+            <X className="icon" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="debug-state">
+            <span className="debug-loader-dot" />
+            <div>
+              <strong>Loading session data</strong>
+              <p>Reading local Codex JSONL files</p>
+            </div>
+          </div>
+        ) : error ? (
+          <div className="error-banner">
+            <AlertCircle className="icon" />
+            {error}
+          </div>
+        ) : data ? (
+          <div className="debug-body">
+            <div className="debug-summary">
+              <DebugMetric label="Tokens" value={formatNumber(data.totals.totalTokens)} />
+              <DebugMetric label="Cost" value={formatCost(data.totals.costUsd)} />
+              <DebugMetric label="Checkpoints" value={String(data.events.length)} />
+              <DebugMetric label="Files" value={String(data.sourceCount)} />
+            </div>
+
+            <div className="debug-controls">
+              <div>
+                <span>Driver</span>
+                <div className="segmented">
+                  {checkpointDriverFilters.map((item) => (
+                    <button
+                      className={driverFilter === item.value ? "active" : ""}
+                      key={item.value}
+                      onClick={() => setDriverFilter(item.value)}
+                      type="button"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span>Sort</span>
+                <div className="segmented">
+                  {checkpointSorts.map((item) => (
+                    <button
+                      className={checkpointSort === item.value ? "active" : ""}
+                      key={item.value}
+                      onClick={() => setCheckpointSort(item.value)}
+                      type="button"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="debug-workspace">
+              <div className="debug-left">
+                <section className="debug-section">
+                  <div className="debug-section-head">
+                    <h4>Costliest checkpoints</h4>
+                    <span>inspect the biggest spikes</span>
+                  </div>
+                  <DebugEventList
+                    emptyLabel="No checkpoints match this driver."
+                    events={costliestCheckpoints}
+                    onSelect={setSelectedId}
+                    selectedId={selected?.id}
+                  />
+                </section>
+
+                <details className="debug-section debug-timeline">
+                  <summary>
+                    <span>
+                      <strong>All checkpoints</strong>
+                      <em>
+                        {allCheckpoints.length} / {data.events.length} shown
+                      </em>
+                    </span>
+                    <ChevronDown className="icon" />
+                  </summary>
+                  <DebugEventList
+                    emptyLabel="No checkpoints match this filter."
+                    events={allCheckpoints}
+                    onSelect={setSelectedId}
+                    selectedId={selected?.id}
+                  />
+                </details>
+              </div>
+
+              {selected ? (
+                <section className="debug-section selected-debug">
+                  <div className="debug-section-head">
+                    <h4>Checkpoint inspector</h4>
+                    <span>
+                      {debugDriverLabel(selected)} · line {selected.lineNumber}
+                    </span>
+                  </div>
+                  <div className="debug-token-grid">
+                    <DebugMetric label="Input" value={formatNumber(selected.usage.inputFresh)} />
+                    <DebugMetric label="Output" value={formatNumber(selected.usage.output)} />
+                    <DebugMetric label="Reasoning" value={formatNumber(selected.usage.reasoning)} />
+                    <DebugMetric label="Cache" value={formatNumber(selected.usage.cacheRead)} />
+                    <DebugMetric label="Cost" value={formatCost(selected.costUsd)} />
+                  </div>
+                  <details open>
+                    <summary>Prompt and context</summary>
+                    {selected.prompt ? (
+                      <pre>{selected.prompt}</pre>
+                    ) : (
+                      <div className="debug-empty-state">
+                        No nearby prompt captured for this checkpoint.
+                      </div>
+                    )}
+                    {selected.promptTruncated ? (
+                      <p className="debug-note">Prompt preview truncated for browser safety.</p>
+                    ) : null}
+                  </details>
+                  <div className="context-list">
+                    {selected.context.map((item) => (
+                      <div
+                        className={`context-item ${item.kind}`}
+                        key={`${item.lineNumber}:${item.label}`}
+                      >
+                        <span>{item.label}</span>
+                        <p>{item.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </aside>
+    </div>
+  );
+}
+
+function DebugMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="debug-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function DebugEventList({
+  emptyLabel,
+  events,
+  onSelect,
+  selectedId,
+}: {
+  emptyLabel: string;
+  events: SessionDebugEvent[];
+  onSelect: (id: string) => void;
+  selectedId: string | undefined;
+}) {
+  if (!events.length) {
+    return <div className="debug-empty-list">{emptyLabel}</div>;
+  }
+  return (
+    <div className="debug-event-list">
+      <div className="debug-event-header">
+        <span>Time</span>
+        <span>Checkpoint</span>
+        <span>Driver</span>
+        <span>Cost</span>
+        <span>Tokens</span>
+      </div>
+      {events.map((event) => (
+        <button
+          className={event.id === selectedId ? "active" : ""}
+          key={event.id}
+          onClick={() => onSelect(event.id)}
+          style={{ "--heat": costHeat(event.costUsd, events) } as CSSProperties}
+          type="button"
+        >
+          <span className="debug-event-index">{formatClock(event.occurredAt)}</span>
+          <div className="debug-event-main">
+            <p>{event.category?.label ?? "Uncategorized"}</p>
+            <em>{displayModel(event.modelId)}</em>
+          </div>
+          <span className={`debug-driver ${event.culpritReason}`}>{debugDriverShort(event)}</span>
+          <strong>{formatCost(event.costUsd)}</strong>
+          <small>{formatNumber(event.totalTokens)}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function debugDriverLabel(event: SessionDebugEvent): string {
+  switch (event.culpritReason) {
+    case "input":
+      return "Input spike";
+    case "output":
+      return "Output spike";
+    case "reasoning":
+      return "Reasoning spike";
+    case "cache":
+      return "Cache-heavy checkpoint";
+    case "cost":
+      return "Cost spike";
+  }
+}
+
+function debugDriverShort(event: SessionDebugEvent): string {
+  switch (event.culpritReason) {
+    case "input":
+      return "Input";
+    case "output":
+      return "Output";
+    case "reasoning":
+      return "Reasoning";
+    case "cache":
+      return "Cache";
+    case "cost":
+      return "Cost";
+  }
+}
+
+function filterDebugEvents(
+  events: SessionDebugEvent[],
+  driverFilter: CheckpointDriverFilter,
+): SessionDebugEvent[] {
+  if (driverFilter === "all") {
+    return events;
+  }
+  return events.filter((event) => event.culpritReason === driverFilter);
+}
+
+function sortDebugEvents(events: SessionDebugEvent[], sort: CheckpointSort): SessionDebugEvent[] {
+  return [...events].sort((left, right) => {
+    if (sort === "tokens") {
+      return right.totalTokens - left.totalTokens;
+    }
+    if (sort === "time") {
+      return right.occurredAt.localeCompare(left.occurredAt);
+    }
+    return right.costUsd - left.costUsd;
+  });
+}
+
+function costHeat(costUsd: number, events: SessionDebugEvent[]): string {
+  const max = Math.max(0, ...events.map((event) => event.costUsd));
+  if (max <= 0) {
+    return "low";
+  }
+  const ratio = costUsd / max;
+  if (ratio >= 0.72) {
+    return "high";
+  }
+  if (ratio >= 0.42) {
+    return "medium";
+  }
+  if (ratio >= 0.16) {
+    return "warm";
+  }
+  return "low";
 }
 
 function SettingsPanel({
@@ -1812,6 +2343,7 @@ function toWorkspaceRows(sessions: UiSession[]): WorkspaceRow[] {
     if (!row) {
       rows.set(session.workspace, {
         ...session,
+        debugSession: session.provider === "codex" ? session : undefined,
         id: "1 session",
         sessionCount: 1,
       });
@@ -1826,6 +2358,12 @@ function toWorkspaceRows(sessions: UiSession[]): WorkspaceRow[] {
     row.cacheWrite += session.cacheWrite;
     row.cost += session.cost;
     row.models = Array.from(new Set([...row.models, ...session.models]));
+    if (
+      session.provider === "codex" &&
+      (!row.debugSession || session.cost > row.debugSession.cost)
+    ) {
+      row.debugSession = session;
+    }
     row.cacheHitRatio =
       row.inputTokens + row.cacheRead > 0 ? row.cacheRead / (row.inputTokens + row.cacheRead) : 0;
     if (new Date(session.lastActivity).getTime() > new Date(row.lastActivity).getTime()) {
@@ -1844,6 +2382,14 @@ function toWorkspaceRows(sessions: UiSession[]): WorkspaceRow[] {
     }
   }
   return Array.from(rows.values());
+}
+
+function getDebugTarget(session: UiSession | WorkspaceRow): UiSession | undefined {
+  const workspaceTarget = (session as WorkspaceRow).debugSession;
+  if (workspaceTarget?.provider === "codex") {
+    return workspaceTarget;
+  }
+  return session.provider === "codex" ? session : undefined;
 }
 
 function emptyTotals(): UsageTotals {
@@ -2076,12 +2622,24 @@ const styles = `
   --primary: oklch(0.55 0.17 235);
   --primary-foreground: oklch(0.99 0.002 260);
   --destructive: oklch(0.55 0.22 25);
-  --token-input: oklch(0.55 0.17 235);
-  --token-output: oklch(0.55 0.16 155);
-  --token-reasoning: oklch(0.55 0.2 295);
-  --token-cache-read: oklch(0.55 0.13 200);
-  --token-cache-write: oklch(0.5 0.09 200);
+  --token-input: oklch(0.55 0.22 255);
+  --token-output: oklch(0.58 0.18 145);
+  --token-reasoning: oklch(0.58 0.22 305);
+  --token-cache-read: oklch(0.68 0.18 70);
+  --token-cache-write: oklch(0.52 0.08 205);
   --token-cost: oklch(0.62 0.17 65);
+  --category-coding: oklch(0.55 0.22 255);
+  --category-feature: oklch(0.58 0.18 145);
+  --category-debug: oklch(0.58 0.22 25);
+  --category-test: oklch(0.6 0.19 285);
+  --category-build: oklch(0.68 0.18 70);
+  --category-git: oklch(0.58 0.16 200);
+  --category-refactor: oklch(0.55 0.13 185);
+  --category-exploration: oklch(0.58 0.14 320);
+  --category-conversation: oklch(0.52 0.12 250);
+  --category-delegation: oklch(0.62 0.16 115);
+  --category-docs: oklch(0.56 0.12 35);
+  --category-other: oklch(0.56 0.03 260);
   --spend-warn: oklch(0.62 0.17 65);
   --spend-danger: oklch(0.55 0.22 25);
   --status-active: oklch(0.55 0.16 155);
@@ -2105,12 +2663,24 @@ const styles = `
   --primary: oklch(0.72 0.16 230);
   --primary-foreground: oklch(0.16 0.012 260);
   --destructive: oklch(0.65 0.21 25);
-  --token-input: oklch(0.72 0.16 230);
-  --token-output: oklch(0.74 0.17 155);
-  --token-reasoning: oklch(0.7 0.2 295);
-  --token-cache-read: oklch(0.78 0.13 200);
-  --token-cache-write: oklch(0.62 0.09 200);
+  --token-input: oklch(0.72 0.19 255);
+  --token-output: oklch(0.74 0.18 145);
+  --token-reasoning: oklch(0.74 0.2 305);
+  --token-cache-read: oklch(0.82 0.17 75);
+  --token-cache-write: oklch(0.66 0.09 205);
   --token-cost: oklch(0.78 0.16 75);
+  --category-coding: oklch(0.72 0.19 255);
+  --category-feature: oklch(0.74 0.18 145);
+  --category-debug: oklch(0.72 0.2 25);
+  --category-test: oklch(0.75 0.2 285);
+  --category-build: oklch(0.82 0.17 75);
+  --category-git: oklch(0.74 0.15 200);
+  --category-refactor: oklch(0.72 0.13 185);
+  --category-exploration: oklch(0.74 0.16 320);
+  --category-conversation: oklch(0.7 0.13 250);
+  --category-delegation: oklch(0.76 0.17 115);
+  --category-docs: oklch(0.72 0.13 35);
+  --category-other: oklch(0.65 0.04 260);
   --spend-warn: oklch(0.78 0.16 75);
   --spend-danger: oklch(0.68 0.2 25);
   --status-active: oklch(0.74 0.17 155);
@@ -2191,6 +2761,9 @@ h1 { font-size: 20px; line-height: 1.2; letter-spacing: 0; }
 .primary-chart { grid-column: span 8; }
 .model-card { grid-column: span 4; display: flex; flex-direction: column; }
 .third { grid-column: span 4; }
+.usage-category-panel { grid-column: span 8; }
+.overview-side-stack { grid-column: span 4; display: grid; gap: 16px; align-content: start; }
+.overview-side-stack > .third { grid-column: auto; }
 .panel-head, .sessions-head { min-height: 52px; padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .panel-head h3, .sessions-head h3 { font-size: 14px; line-height: 1.2; font-weight: 650; letter-spacing: 0; }
 .panel-head p, .panel-head span, .sessions-head span { color: var(--muted-foreground); margin-top: 4px; }
@@ -2220,7 +2793,7 @@ h1 { font-size: 20px; line-height: 1.2; letter-spacing: 0; }
 .mix-list span, .composition-row div span { width: 6px; height: 6px; border-radius: 999px; }
 .mix-list p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-family: "JetBrains Mono", ui-monospace, monospace; }
 .mix-list strong, .composition-row strong, .provider-row strong { font: 11px/1 "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-.composition, .provider-list { padding: 20px; display: grid; gap: 14px; }
+.composition, .provider-list, .category-list { padding: 20px; display: grid; gap: 14px; }
 .stack-bar { height: 8px; display: flex; overflow: hidden; border-radius: 999px; box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border) 60%, transparent); }
 .composition-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; font-size: 11px; }
 .composition-row > div:first-child { display: flex; align-items: center; gap: 6px; color: var(--muted-foreground); }
@@ -2230,6 +2803,13 @@ h1 { font-size: 20px; line-height: 1.2; letter-spacing: 0; }
 .provider-row > div:first-child { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 12px; }
 .provider-row span { color: var(--muted-foreground); font: 10px/1 "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 .provider-row p { font-weight: 550; }
+.category-row { display: grid; gap: 7px; }
+.category-row > div:first-child { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 12px; }
+.category-row > div:first-child span { width: 8px; height: 8px; border-radius: 2px; }
+.category-row p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.category-row strong { font: 11px/1 "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.category-row > div:nth-child(2) { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted-foreground); font: 10px/1 "JetBrains Mono", ui-monospace, monospace; }
+.category-row em { font-style: normal; }
 .breakdown-panel { grid-column: span 8; }
 .breakdown-list, .settings-body { padding: 20px; display: grid; gap: 12px; }
 .breakdown-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 12px; }
@@ -2283,6 +2863,8 @@ th span.active { color: var(--foreground); }
 .model-tags span { padding: 3px 6px; border-radius: 4px; background: color-mix(in oklab, var(--muted) 60%, transparent); box-shadow: inset 0 0 0 1px var(--border); font: 10px/1.2 "JetBrains Mono", ui-monospace, monospace; }
 .cost-hot, .cost-warn { color: var(--spend-warn); }
 .cost-danger { color: var(--spend-danger); }
+.debug-session-btn { height: 28px; border: 0; border-radius: 6px; background: var(--surface); color: var(--muted-foreground); display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; box-shadow: inset 0 0 0 1px var(--border); font: 10px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+.debug-session-btn:hover { color: var(--foreground); background: var(--surface-elevated); }
 .cache-bar { justify-content: flex-end; gap: 8px; }
 .cache-bar div { width: 48px; height: 4px; border-radius: 999px; background: var(--muted); overflow: hidden; }
 .cache-bar span { display: block; height: 100%; border-radius: inherit; }
@@ -2300,6 +2882,77 @@ th span.active { color: var(--foreground); }
 .empty, .empty-row { color: var(--muted-foreground); }
 .empty-row { text-align: center; padding: 48px 16px; }
 .error-banner { display: flex; align-items: center; gap: 8px; border-radius: 8px; padding: 12px 14px; background: color-mix(in oklab, var(--destructive) 10%, transparent); color: var(--destructive); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--destructive) 25%, transparent); font-size: 13px; }
+.debug-overlay { position: fixed; inset: 0; z-index: 100; pointer-events: none; }
+.debug-backdrop { position: absolute; inset: 0; border: 0; background: rgba(0,0,0,0.38); pointer-events: auto; }
+.debug-drawer { position: absolute; top: 0; right: 0; width: min(1120px, calc(100vw - 32px)); height: 100%; overflow-y: auto; background: var(--background); color: var(--foreground); box-shadow: -24px 0 72px rgba(0,0,0,0.34); pointer-events: auto; display: flex; flex-direction: column; }
+.debug-head { min-height: 88px; padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; background: var(--card); }
+.debug-head > div { min-width: 0; }
+.debug-head h3 { font-size: 15px; line-height: 1.2; }
+.debug-head p { max-width: 680px; margin-top: 6px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/1.35 "JetBrains Mono", ui-monospace, monospace; }
+.debug-head small { display: block; max-width: 720px; margin-top: 8px; color: color-mix(in oklab, var(--muted-foreground) 82%, transparent); font-size: 12px; line-height: 1.4; }
+.debug-state { margin: 20px; min-height: 74px; padding: 16px 18px; border-radius: 8px; background: var(--card); box-shadow: inset 0 0 0 1px var(--border); display: flex; align-items: center; gap: 12px; }
+.debug-state strong { display: block; color: var(--foreground); font-size: 13px; line-height: 1.2; font-weight: 650; }
+.debug-state p { margin-top: 5px; color: var(--muted-foreground); font: 10px/1.2 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+.debug-loader-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--status-active); box-shadow: 0 0 0 5px color-mix(in oklab, var(--status-active) 12%, transparent); animation: tick 1.6s ease-in-out infinite; flex: 0 0 auto; }
+.debug-body { padding: 20px; display: grid; gap: 16px; }
+.debug-summary, .debug-token-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); gap: 10px; }
+.debug-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px; border-radius: 8px; background: var(--card); box-shadow: inset 0 0 0 1px var(--border); }
+.debug-controls > div { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.debug-controls > div > span { color: var(--muted-foreground); font: 10px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+.debug-controls .segmented { max-width: 100%; overflow-x: auto; }
+.debug-workspace { display: grid; grid-template-columns: minmax(340px, 0.9fr) minmax(0, 1.4fr); gap: 16px; align-items: start; }
+.debug-left { display: grid; gap: 16px; min-width: 0; }
+.debug-metric { min-width: 0; padding: 12px; border-radius: 8px; background: var(--card); box-shadow: inset 0 0 0 1px var(--border); display: grid; gap: 8px; }
+.debug-metric span { color: var(--muted-foreground); font: 10px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+.debug-metric strong { min-width: 0; overflow-wrap: anywhere; font: 600 16px/1.1 "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.debug-section { border-radius: 8px; background: var(--card); box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; }
+.debug-section-head { min-height: 48px; padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.debug-section-head h4 { margin: 0; font-size: 13px; }
+.debug-section-head span { color: var(--muted-foreground); font: 10px/1.2 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+.debug-event-list { padding: 10px; display: grid; gap: 6px; }
+.debug-event-header, .debug-event-list button { display: grid; grid-template-columns: 52px minmax(0, 1fr) 76px 72px 72px; align-items: center; gap: 10px; }
+.debug-event-header { padding: 0 10px 6px; color: var(--muted-foreground); font: 9px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+.debug-event-header span:nth-child(n+3) { text-align: right; }
+.debug-event-list button { --heat-bg: transparent; --heat-border: var(--border); border: 0; border-radius: 6px; background: var(--heat-bg); color: var(--foreground); padding: 10px; text-align: left; box-shadow: inset 3px 0 0 var(--heat-border); }
+.debug-event-list button[style*="low"] { --heat-bg: color-mix(in oklab, var(--status-active) 4%, transparent); --heat-border: color-mix(in oklab, var(--status-active) 32%, transparent); }
+.debug-event-list button[style*="warm"] { --heat-bg: color-mix(in oklab, var(--spend-warn) 7%, transparent); --heat-border: color-mix(in oklab, var(--spend-warn) 48%, transparent); }
+.debug-event-list button[style*="medium"] { --heat-bg: color-mix(in oklab, var(--token-cost) 9%, transparent); --heat-border: color-mix(in oklab, var(--token-cost) 56%, transparent); }
+.debug-event-list button[style*="high"] { --heat-bg: color-mix(in oklab, var(--spend-danger) 10%, transparent); --heat-border: color-mix(in oklab, var(--spend-danger) 58%, transparent); }
+.debug-event-list button:hover, .debug-event-list button.active { background: color-mix(in oklab, var(--surface) 76%, var(--heat-bg)); box-shadow: inset 3px 0 0 var(--heat-border), inset 0 0 0 1px color-mix(in oklab, var(--heat-border) 42%, transparent); }
+.debug-event-index, .debug-event-main em { color: var(--muted-foreground); font: 10px/1 "JetBrains Mono", ui-monospace, monospace; font-style: normal; font-variant-numeric: tabular-nums; }
+.debug-event-main { min-width: 0; display: grid; gap: 4px; }
+.debug-event-main p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.debug-driver { justify-self: end; max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px; padding: 4px 6px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); font: 9px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.06em; }
+.debug-driver.input { color: var(--token-input); }
+.debug-driver.output { color: var(--token-output); }
+.debug-driver.reasoning { color: var(--token-reasoning); }
+.debug-driver.cache { color: var(--token-cache-read); }
+.debug-driver.cost { color: var(--token-cost); }
+.debug-event-list strong { text-align: right; font: 12px/1 "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.debug-event-list small { color: var(--muted-foreground); text-align: right; font: 10px/1 "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.debug-empty-list { padding: 18px 16px; color: var(--muted-foreground); font: 11px/1.4 "JetBrains Mono", ui-monospace, monospace; }
+.selected-debug { display: grid; gap: 12px; padding-bottom: 14px; }
+.selected-debug .debug-section-head { margin-bottom: 2px; }
+.selected-debug .debug-token-grid, .selected-debug details, .context-list { margin-left: 14px; margin-right: 14px; }
+.selected-debug details { border-radius: 6px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; }
+.selected-debug summary { cursor: pointer; padding: 10px 12px; color: var(--muted-foreground); font: 11px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+.selected-debug pre { max-height: 340px; overflow: auto; margin: 0; padding: 12px; border-top: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.55 "JetBrains Mono", ui-monospace, monospace; }
+.debug-empty-state { margin: 0; padding: 18px 12px; border-top: 1px solid var(--border); color: var(--muted-foreground); background: color-mix(in oklab, var(--card) 42%, transparent); font: 11px/1.5 "JetBrains Mono", ui-monospace, monospace; }
+.debug-note { padding: 0 12px 12px; color: var(--token-cost); font: 11px/1.4 "JetBrains Mono", ui-monospace, monospace; }
+.context-list { display: grid; gap: 8px; }
+.context-item { border-radius: 6px; background: color-mix(in oklab, var(--surface) 70%, transparent); box-shadow: inset 0 0 0 1px var(--border); padding: 10px; display: grid; gap: 6px; }
+.context-item span { color: var(--muted-foreground); font: 10px/1 "JetBrains Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+.context-item p { max-height: 96px; overflow: hidden; color: color-mix(in oklab, var(--foreground) 84%, transparent); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.45 "JetBrains Mono", ui-monospace, monospace; }
+.context-item.prompt { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--token-input) 38%, transparent); }
+.context-item.tool { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--token-output) 30%, transparent); }
+.debug-timeline summary { min-height: 48px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.debug-timeline summary::-webkit-details-marker { display: none; }
+.debug-timeline summary span { display: grid; gap: 4px; }
+.debug-timeline summary strong { font-size: 13px; }
+.debug-timeline summary em { color: var(--muted-foreground); font: 10px/1 "JetBrains Mono", ui-monospace, monospace; font-style: normal; text-transform: uppercase; letter-spacing: 0.08em; }
+.debug-timeline summary .icon { color: var(--muted-foreground); transition: transform 160ms ease; }
+.debug-timeline[open] summary .icon { transform: rotate(180deg); }
+.debug-timeline[open] .debug-event-list { border-top: 1px solid var(--border); }
 .footer { color: color-mix(in oklab, var(--muted-foreground) 70%, transparent); padding: 16px 0; }
 .entrance { animation: entrance 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
 @keyframes scan { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
@@ -2307,7 +2960,14 @@ th span.active { color: var(--foreground); }
 @keyframes entrance { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 1180px) {
   .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .primary-chart, .model-card, .third, .breakdown-panel { grid-column: span 12; }
+  .primary-chart, .model-card, .third, .usage-category-panel, .overview-side-stack, .breakdown-panel { grid-column: span 12; }
+  .debug-drawer { width: min(980px, calc(100vw - 20px)); }
+  .debug-workspace { grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.2fr); }
+}
+@media (max-width: 920px) {
+  .debug-drawer { width: 100vw; }
+  .debug-workspace { grid-template-columns: 1fr; }
+  .debug-event-header, .debug-event-list button { grid-template-columns: 52px minmax(0, 1fr) 76px 72px 72px; }
 }
 @media (max-width: 760px) {
   nav, .action-btn { display: none; }
@@ -2319,6 +2979,13 @@ th span.active { color: var(--foreground); }
   .state-tabs { width: 100%; overflow-x: auto; }
   .legend-row { display: none; }
   .model-body { flex-direction: column; align-items: stretch; }
+  .debug-body { padding: 14px; }
+  .debug-controls { align-items: stretch; }
+  .debug-controls > div { width: 100%; justify-content: space-between; }
+  .debug-summary, .debug-token-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .debug-event-header { display: none; }
+  .debug-event-list button { grid-template-columns: 46px minmax(0, 1fr) auto; }
+  .debug-event-list small, .debug-driver { display: none; }
 }
 `;
 

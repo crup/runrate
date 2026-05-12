@@ -11,23 +11,30 @@
 [![Good first issues](https://img.shields.io/github/issues/crup/runrate/good%20first%20issue?label=good%20first%20issues)](https://github.com/crup/runrate/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22)
 [![Contributors](https://img.shields.io/github/contributors/crup/runrate)](https://github.com/crup/runrate/graphs/contributors)
 [![Last commit](https://img.shields.io/github/last-commit/crup/runrate)](https://github.com/crup/runrate/commits/main)
-[![Status](https://img.shields.io/badge/status-1.0%20ready-22c55e)](#status)
-[![Tests](https://img.shields.io/badge/tests-vitest%206%20passing-22c55e)](#development)
+[![Status](https://img.shields.io/badge/status-1.1%20ready-22c55e)](#status)
+[![Tests](https://img.shields.io/badge/tests-vitest%207%20passing-22c55e)](#development)
 
 ```bash
 npx @crup/runrate
 ```
 
-Runrate opens a local React dashboard for the usage data your coding agents already write to disk. No hosted account. No proxy. No remote collector.
+Runrate opens a local React dashboard for the usage data your coding agents already write to disk. No hosted account. No proxy. No remote collector. Version `1.1.0` adds a Codex session cost debugger for finding the prompt/tool checkpoints behind usage spikes.
 
 ![Runrate dark dashboard](assets/readme/dark.png)
 
-The README screenshots are from real local Codex usage with private project names masked as `******` and session ids hidden. Public/open project names such as `runrate`, `port`, and `react-timer-hook` are left visible.
+The README screenshots are from real local Codex usage in the 30-day, 15-minute, log-scale workspace view. Private project names are masked as `******`, session ids are masked as `***`, and debugger prompt/tool context is masked as `** masked **`. Public/open project names such as `runrate`, `port`, and `react-timer-hook` are left visible.
 
 <details>
 <summary>Light mode screenshot</summary>
 
 ![Runrate light dashboard](assets/readme/light.png)
+
+</details>
+
+<details>
+<summary>Session cost debugger screenshot</summary>
+
+![Runrate session cost debugger](assets/readme/debugger.png)
 
 </details>
 
@@ -52,7 +59,8 @@ Runrate is the dashboard I wanted beside my editor: local-first, near real time,
 - ⚡ Cache hit ratio and cache-read volume
 - 🧠 Model mix across multi-model sessions
 - 🗂️ Session list grouped by workspace or full session id
-- 🕒 Calendar filters: Today, Yesterday, This week, Last week, This month, Last month, All time
+- 🔬 Codex session cost debugger for inspecting expensive token checkpoints
+- 🕒 Calendar filters: Today, Yesterday, This week, Last week, This month, Last month, 30 days, All time
 - 🔎 Filters for provider/model
 - 🌓 Dark/light mode, persisted locally
 - 🔁 Configurable refresh interval, defaulting to 1 minute
@@ -60,7 +68,7 @@ Runrate is the dashboard I wanted beside my editor: local-first, near real time,
 
 ## Status
 
-Runrate is ready for its first stable OSS release.
+Runrate is ready for its first minor OSS release.
 
 | Area              | Status                                                          |
 | ----------------- | --------------------------------------------------------------- |
@@ -68,7 +76,8 @@ Runrate is ready for its first stable OSS release.
 | Claude Code       | ⚠️ Best-effort, fixture-tested only                             |
 | Pricing           | ⚠️ Local estimates using bundled rates and documented fallbacks |
 | UI period compare | 🚧 Removed for now; planned for a later version                 |
-| Test suite        | ✅ Vitest coverage for core pricing/parser regressions          |
+| Session debugger  | ✅ Codex-only checkpoint inspector with masked README examples  |
+| Test suite        | ✅ Vitest coverage for core pricing/parser/debug regressions    |
 | Packaging         | ✅ `npm pack --dry-run` checked                                 |
 
 If you find a parsing bug, wrong total, missing model, or awkward UI behavior, please open an issue. Small fixtures and focused PRs are very welcome.
@@ -143,6 +152,18 @@ It normalizes `event_msg` `token_count` records and maps:
 Codex sessions can use multiple models. Runrate keeps `modelId` on every normalized usage event, calculates cost per event, then rolls up to session, workspace, provider, and global summaries.
 
 If a Codex token record does not include a model, Runrate resolves the model from nearby session metadata and model context. If no model can be recovered, Runrate marks the event as inferred and falls back to `gpt-5` for pricing. This mirrors Codeburn's Codex behavior and avoids silently pricing missing-model Codex usage as `$0`.
+
+### Session Cost Debugger
+
+Runrate can open a local Codex-only debugger from the sessions table. It reads the selected session JSONL on demand and shows:
+
+- costliest token checkpoints
+- all checkpoints with filters for input, output, reasoning, and cache drivers
+- sorting by cost, tokens, or time
+- input/output/reasoning/cache/cost for the selected checkpoint
+- nearby prompt and tool context, rendered only inside the local browser
+
+The normal dashboard export stays lightweight. Raw prompt/context is not added to the aggregate usage response; it is read from local Codex files only when you open the debugger for a selected session.
 
 ### Claude Code
 
@@ -251,7 +272,7 @@ Runrate is local-first:
 
 Provider logs may contain sensitive prompts, file paths, repo names, session ids, or workspace metadata. Do not paste raw logs into public issues. Please share small redacted fixtures instead.
 
-The README screenshots are generated from real local Codex usage. Private project names are masked as `******`, session ids are hidden, and public/open project names such as `runrate`, `port`, and `react-timer-hook` are left visible.
+The README screenshots are generated from real local Codex usage. Private project names are masked as `******`, session ids are masked as `***`, debugger prompt/tool context is masked as `** masked **`, and public/open project names such as `runrate`, `port`, and `react-timer-hook` are left visible.
 
 ## Development
 
@@ -278,7 +299,7 @@ Current local verification:
 TypeScript: passing
 ESLint:     passing
 Prettier:   passing
-Vitest:     6 tests passing
+Vitest:     7 tests passing
 Build:      passing
 Pack check: passing
 ```

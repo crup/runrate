@@ -21,6 +21,13 @@ describe("core reducers", () => {
     expect(rollup.sessions[0]?.models).toEqual(["gpt-5.5", "gpt-5.4-mini"]);
     expect(rollup.sessions[0]?.modelBreakdown).toHaveLength(2);
     expect(rollup.totals.totalTokens).toBe(150);
+    expect(rollup.categories).toEqual([
+      {
+        category: { id: "coding", label: "Coding" },
+        eventCount: 2,
+        totals: expect.objectContaining({ totalTokens: 150 }),
+      },
+    ]);
   });
 });
 
@@ -49,5 +56,6 @@ const event = (modelId: string, occurredAt: string, inputFresh: number): Normali
     sourcePath: "fixture",
     adapterVersion: "test",
     rawCursor: "fixture",
+    category: { id: "coding", label: "Coding" },
   },
 });

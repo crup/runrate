@@ -2,6 +2,7 @@ import {
   addUsage,
   emptyTokenSnapshot,
   type ActiveScope,
+  type CategoryBreakdown,
   type ModelBreakdown,
   type NormalizedUsageEvent,
   type PricingMode,
@@ -32,6 +33,7 @@ export interface AggregateOptions {
 interface Accumulator {
   usage: TokenSnapshot;
   costUsd: number;
+  eventCount: number;
   lastActivityAt: string | null;
   sessions: Set<string>;
 }
@@ -39,6 +41,7 @@ interface Accumulator {
 const createAccumulator = (): Accumulator => ({
   usage: emptyTokenSnapshot(),
   costUsd: 0,
+  eventCount: 0,
   lastActivityAt: null,
   sessions: new Set(),
 });
@@ -46,6 +49,7 @@ const createAccumulator = (): Accumulator => ({
 const addEventToAccumulator = (accumulator: Accumulator, event: NormalizedUsageEvent): void => {
   accumulator.usage = addUsage(accumulator.usage, event.usage);
   accumulator.costUsd += event.cost.effectiveUsd;
+  accumulator.eventCount += 1;
   accumulator.sessions.add(event.nativeSessionId);
   if (!accumulator.lastActivityAt || event.occurredAt > accumulator.lastActivityAt) {
     accumulator.lastActivityAt = event.occurredAt;
@@ -120,6 +124,7 @@ export const aggregateEvents = (
   const binAccumulators = new Map<number, Accumulator>();
   const modelAccumulators = new Map<string, Accumulator>();
   const providerAccumulators = new Map<string, Accumulator>();
+  const categoryAccumulators = new Map<string, Accumulator>();
   const sessionEvents = new Map<string, NormalizedUsageEvent[]>();
 
   for (const event of filtered) {
@@ -132,6 +137,14 @@ export const aggregateEvents = (
     addEventToAccumulator(getOrCreate(modelAccumulators, modelKey, createAccumulator), event);
     addEventToAccumulator(
       getOrCreate(providerAccumulators, event.provider, createAccumulator),
+      event,
+    );
+    addEventToAccumulator(
+      getOrCreate(
+        categoryAccumulators,
+        `${event.meta.category?.id ?? "other"}\u0000${event.meta.category?.label ?? "Other"}`,
+        createAccumulator,
+      ),
       event,
     );
 
@@ -178,6 +191,20 @@ export const aggregateEvents = (
     }))
     .sort((a, b) => b.totals.totalTokens - a.totals.totalTokens);
 
+  const categories: CategoryBreakdown[] = [...categoryAccumulators.entries()]
+    .map(([key, accumulator]) => {
+      const [id, label] = key.split("\u0000");
+      return {
+        category: {
+          id: (id ?? "other") as CategoryBreakdown["category"]["id"],
+          label: label ?? "Other",
+        },
+        eventCount: accumulator.eventCount,
+        totals: toTotals(accumulator),
+      };
+    })
+    .sort((a, b) => b.totals.totalTokens - a.totals.totalTokens);
+
   const sessions: SessionSummary[] = [...sessionEvents.values()]
     .map((session) => summarizeSession(session, nowMs))
     .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
@@ -192,6 +219,7 @@ export const aggregateEvents = (
     sessions,
     models,
     providers,
+    categories,
   };
 };
 
