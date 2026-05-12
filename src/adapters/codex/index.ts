@@ -65,6 +65,7 @@ export const codexAdapter: UsageAdapter = {
     ctx?: ScanContext,
   ): AsyncIterable<RawAdapterRecord> {
     const roots = [path.join(source.path, "sessions"), path.join(source.path, "archived_sessions")];
+    let remainingFiles = ctx?.maxFiles ?? Number.POSITIVE_INFINITY;
 
     for (const root of roots) {
       if (!(await pathExists(root))) {
@@ -76,7 +77,12 @@ export const codexAdapter: UsageAdapter = {
         (filePath) =>
           filePath.endsWith(".jsonl") && fileMayContainUsageSince(filePath, ctx?.sinceMs),
       );
-      for (const filePath of files) {
+      const orderedFiles = ctx?.newestFirst ? files.reverse() : files;
+      for (const filePath of orderedFiles) {
+        if (remainingFiles <= 0) {
+          return;
+        }
+        remainingFiles -= 1;
         const records = await readCompleteJsonl(filePath);
         for (const record of records) {
           yield {

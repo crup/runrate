@@ -46,6 +46,8 @@ export const collectUsageEvents = async (args: {
   pricingMode: "vendor" | "calculated" | "hybrid" | "compare";
   timezone: string;
   sinceMs?: number | undefined;
+  maxFiles?: number | undefined;
+  newestFirst?: boolean | undefined;
 }) => {
   const adapters = args.adapters ?? builtinAdapters;
   const results = await detectAdapters(adapters);
@@ -59,6 +61,8 @@ export const collectUsageEvents = async (args: {
       const records = [];
       for await (const record of result.adapter.scan(source, undefined, {
         sinceMs: args.sinceMs,
+        maxFiles: args.maxFiles,
+        newestFirst: args.newestFirst,
       })) {
         records.push(record);
       }

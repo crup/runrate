@@ -10,13 +10,14 @@ npx @crup/runrate
 
 ## What is Runrate?
 
-Runrate is a local-first terminal dashboard for watching AI coding usage in real time. It reads local usage artifacts, normalizes token events, maps them to estimated cost, and renders an `htop`-style dashboard across time windows, sessions, models, workspaces, and providers.
+Runrate is a local-first terminal dashboard for watching AI coding usage in real time. It reads local usage artifacts, normalizes token events, maps them to estimated cost, and renders a graphics-first dashboard across time windows, sessions, models, workspaces, and providers.
 
 Runrate does not proxy model traffic and does not require a hosted account.
 
 ## Features
 
-- Realtime Ink TUI launched by `runrate` or `npx @crup/runrate`
+- Realtime Blessed/contrib TUI launched by `runrate` or `npx @crup/runrate`
+- Graphics-heavy live view with line charts, stacked bars, donut charts, gauges, sparklines, and LCD counters
 - Codex adapter tested against local `~/.codex` JSONL artifacts
 - Best-effort Claude Code adapter with fixture coverage
 - Multi-model sessions: costs are calculated per event using that event's model, then rolled up
@@ -73,12 +74,10 @@ runrate --version
 ## TUI Controls
 
 ```txt
-g        global scope
 left     smaller time window
 right    larger time window
 t        token chart
 $        cost chart
-r        rate chart
 h        cache chart
 a        active sessions chart
 q        quit
@@ -213,7 +212,7 @@ Runrate uses semantic versioning and Changesets. Every user-facing change should
 pnpm changeset
 ```
 
-The release workflow publishes from GitHub Actions after `NPM_TOKEN` is configured in repository secrets. Local npm publishing is not part of the v0.1.0 workflow.
+The release workflow runs build and tests on pushes to `main`. npm publishing is manually gated through `workflow_dispatch` with the `publish` input enabled. Local npm publishing is not part of the v0.1.0 workflow.
 
 Before release:
 

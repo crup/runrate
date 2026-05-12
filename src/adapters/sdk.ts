@@ -46,6 +46,8 @@ export interface RawAdapterRecord {
 
 export interface ScanContext {
   sinceMs?: number | undefined;
+  maxFiles?: number | undefined;
+  newestFirst?: boolean | undefined;
 }
 
 export interface NormalizeContext {

@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to npm instead of only running release checks
+        required: false
+        default: false
+        type: boolean
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
@@ -12,7 +19,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     env:
-      NPM_TOKEN_SET: ${{ secrets.NPM_TOKEN != '' }}
+      RELEASE_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.publish == true && secrets.NPM_TOKEN != '' }}
     permissions:
       contents: write
       pull-requests: write
@@ -43,12 +50,12 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Skip publish until NPM_TOKEN exists
-        if: env.NPM_TOKEN_SET != 'true'
-        run: echo "NPM_TOKEN is not configured; skipping npm publish."
+      - name: Skip publish until manual release
+        if: env.RELEASE_PUBLISH != 'true'
+        run: echo "Publish is gated behind manual workflow_dispatch input; skipping npm publish."
 
       - name: Create release PR or publish
-        if: env.NPM_TOKEN_SET == 'true'
+        if: env.RELEASE_PUBLISH == 'true'
         uses: changesets/action@v1
         with:
           publish: pnpm changeset publish
