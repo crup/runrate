@@ -18,6 +18,11 @@ import { floorToBin, type WindowPreset, WINDOW_PRESETS } from "./windows.js";
 export interface AggregateOptions {
   now?: Date;
   window: WindowPreset;
+  sinceMs?: number | null | undefined;
+  untilMs?: number | undefined;
+  binMs?: number | undefined;
+  maxBins?: number | undefined;
+  windowLabel?: string | undefined;
   scope: ActiveScope;
   pricingMode: PricingMode;
   provider?: string | undefined;
@@ -50,11 +55,15 @@ const addEventToAccumulator = (accumulator: Accumulator, event: NormalizedUsageE
 const eventPassesFilters = (
   event: NormalizedUsageEvent,
   options: AggregateOptions,
-  sinceMs: number,
+  sinceMs: number | null,
   untilMs: number,
 ): boolean => {
   const occurredMs = Date.parse(event.occurredAt);
-  if (!Number.isFinite(occurredMs) || occurredMs < sinceMs || occurredMs > untilMs) {
+  if (
+    !Number.isFinite(occurredMs) ||
+    (sinceMs !== null && occurredMs < sinceMs) ||
+    occurredMs > untilMs
+  ) {
     return false;
   }
   if (!eventMatchesScope(event, options.scope)) {
@@ -98,9 +107,13 @@ export const aggregateEvents = (
   const preset = WINDOW_PRESETS[options.window];
   const now = options.now ?? new Date();
   const nowMs = now.getTime();
-  const sinceMs = nowMs - preset.durationMs;
+  const untilMs = options.untilMs ?? nowMs;
+  const sinceMs =
+    options.sinceMs === null ? null : (options.sinceMs ?? untilMs - preset.durationMs);
+  const binMs = options.binMs ?? preset.binMs;
+  const maxBins = options.maxBins ?? Number.POSITIVE_INFINITY;
 
-  const filtered = events.filter((event) => eventPassesFilters(event, options, sinceMs, nowMs));
+  const filtered = events.filter((event) => eventPassesFilters(event, options, sinceMs, untilMs));
   filtered.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
 
   const globalAccumulator = createAccumulator();
@@ -112,7 +125,7 @@ export const aggregateEvents = (
   for (const event of filtered) {
     addEventToAccumulator(globalAccumulator, event);
 
-    const binStart = floorToBin(Date.parse(event.occurredAt), preset.binMs);
+    const binStart = floorToBin(Date.parse(event.occurredAt), binMs);
     addEventToAccumulator(getOrCreate(binAccumulators, binStart, createAccumulator), event);
 
     const modelKey = `${event.provider}\u0000${event.modelId}`;
@@ -132,13 +145,17 @@ export const aggregateEvents = (
   }
 
   const bins: UsageBin[] = [];
-  const firstBin = floorToBin(sinceMs, preset.binMs);
-  const lastBin = floorToBin(nowMs, preset.binMs);
-  for (let start = firstBin; start <= lastBin; start += preset.binMs) {
+  const firstEventMs = Date.parse(filtered[0]?.occurredAt ?? new Date(untilMs).toISOString());
+  const rangeStartMs = sinceMs ?? firstEventMs;
+  const lastBin = floorToBin(untilMs, binMs);
+  const maxBinsStartMs =
+    Number.isFinite(maxBins) && maxBins > 0 ? lastBin - (maxBins - 1) * binMs : rangeStartMs;
+  const firstBin = floorToBin(Math.max(rangeStartMs, maxBinsStartMs), binMs);
+  for (let start = firstBin; start <= lastBin; start += binMs) {
     const accumulator = binAccumulators.get(start) ?? createAccumulator();
     bins.push({
       start: new Date(start).toISOString(),
-      end: new Date(start + preset.binMs).toISOString(),
+      end: new Date(start + binMs).toISOString(),
       totals: toTotals(accumulator),
     });
   }
@@ -167,7 +184,7 @@ export const aggregateEvents = (
 
   return {
     generatedAt: now.toISOString(),
-    window: options.window,
+    window: options.windowLabel ?? options.window,
     scope: options.scope,
     pricingMode: options.pricingMode,
     totals: toTotals(globalAccumulator),

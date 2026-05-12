@@ -17,8 +17,10 @@ export interface CommonOptions {
   timezone?: string | undefined;
   config?: string | undefined;
   json?: boolean | undefined;
-  noColor?: boolean | undefined;
   debug?: boolean | undefined;
+  port?: string | number | undefined;
+  host?: string | undefined;
+  open?: boolean | undefined;
 }
 
 export const loadRunrateExport = async (options: CommonOptions): Promise<RunrateExport> => {

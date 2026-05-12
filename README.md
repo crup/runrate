@@ -6,23 +6,25 @@ Realtime token, cache, and cost telemetry for AI coding agents.
 npx @crup/runrate
 ```
 
-![Runrate terminal dashboard](assets/runrate-terminal.svg)
-
 ## What is Runrate?
 
-Runrate is a local-first terminal dashboard for watching AI coding usage in real time. It reads local usage artifacts, normalizes token events, maps them to estimated cost, and renders a graphics-first dashboard across time windows, sessions, models, workspaces, and providers.
+Runrate is a local-first web dashboard for watching AI coding usage in real time. It reads local usage artifacts, normalizes token events, maps them to estimated cost, starts a localhost server, and opens a React dashboard across time windows, sessions, models, workspaces, and providers.
 
 Runrate does not proxy model traffic and does not require a hosted account.
 
 ## Features
 
-- Realtime Blessed/contrib TUI launched by `runrate` or `npx @crup/runrate`
-- Graphics-heavy live view with line charts, stacked bars, donut charts, gauges, sparklines, and LCD counters
+- Realtime React dashboard launched by `runrate` or `npx @crup/runrate`
+- Local HTTP server on an uncommon default port with automatic `+1` fallback when the port is busy
+- Calendar filters for Today, Yesterday, This week, Last week, This month, Last month, and All time
+- Independent chart bucket controls, so broad ranges can still be plotted at smaller time frames
+- Prior-period compare overlay for calendar ranges
+- Graphics-heavy live view with trend charts, token mix bars, model donut charts, provider summaries, and session tables
 - Codex adapter tested against local `~/.codex` JSONL artifacts
 - Best-effort Claude Code adapter with fixture coverage
 - Multi-model sessions: costs are calculated per event using that event's model, then rolled up
 - Token, cost, cache, session, model, provider, and workspace summaries
-- JSON export, NDJSON live stream, and static table output
+- JSON export, NDJSON live stream, and JSON diagnostics
 - Local-first privacy and no native database dependency
 
 ## Quick Start
@@ -41,9 +43,10 @@ runrate
 ## Commands
 
 ```bash
-runrate                         # live TUI
-runrate watch --window 15m      # explicit live TUI
-runrate table --window 24h      # static table
+runrate                         # live web dashboard
+runrate watch                   # explicit live web dashboard
+runrate watch --port 49137      # prefer a custom local port
+runrate watch --no-open         # print URL without opening a browser
 runrate export --format json    # JSON export
 runrate export --format ndjson --live
 runrate adapters list
@@ -56,7 +59,6 @@ runrate --version
 ## Options
 
 ```txt
---window <window>       1m,5m,15m,30m,1h,12h,24h,7d,30d
 --scope <scope>         global,account,workspace,session,billing-block
 --provider <provider>   filter by adapter/provider, such as codex
 --model <model>         filter by model id
@@ -66,21 +68,12 @@ runrate --version
 --pricing <mode>        vendor,calculated,hybrid,compare
 --timezone <tz>         IANA timezone, default local
 --config <path>         custom config path
+--port <port>           preferred local HTTP port for watch, default 43871
+--host <host>           local bind host for watch, default 127.0.0.1
+--no-open               do not open the browser automatically
+--window <window>       export window: 1m,5m,15m,30m,1h,12h,24h,7d,30d
 --json                  output JSON where supported
---no-color              disable color
 --debug                 show debug logs
-```
-
-## TUI Controls
-
-```txt
-left     smaller time window
-right    larger time window
-t        token chart
-$        cost chart
-h        cache chart
-a        active sessions chart
-q        quit
 ```
 
 ## Adapters
@@ -173,7 +166,7 @@ raw local artifacts
   -> normalized event store
   -> pricing engine
   -> rollup engine
-  -> TUI / table / JSON / NDJSON
+  -> web dashboard / JSON / NDJSON
 ```
 
 The core does not parse provider files directly. Adapters own provider-specific file formats and emit normalized usage events.
@@ -182,12 +175,13 @@ The core does not parse provider files directly. Adapters own provider-specific 
 
 ```bash
 pnpm install
-pnpm dev
+npm start
 ```
 
 Common commands:
 
 ```bash
+pnpm dev
 pnpm build
 pnpm typecheck
 pnpm lint
@@ -198,7 +192,7 @@ pnpm pack:check
 
 ## Contributing
 
-Runrate is early-stage OSS. Contributions are welcome, especially adapters, fixtures, terminal UI improvements, pricing corrections, and parser correctness fixes.
+Runrate is early-stage OSS. Contributions are welcome, especially adapters, fixtures, web UI improvements, pricing corrections, and parser correctness fixes.
 
 Adapters must include detection logic, scan logic, normalization logic, redacted fixtures, and tests. Do not commit real provider logs, secrets, API keys, prompts, or private conversation content.
 
