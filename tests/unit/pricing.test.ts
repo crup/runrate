@@ -18,4 +18,9 @@ describe("pricing", () => {
       ),
     ).toBe(17.75);
   });
+
+  it("resolves Codex/OpenAI model aliases used by local tools", () => {
+    expect(findPricing("codex", "gpt-5.2-low")?.modelId).toBe("gpt-5");
+    expect(findPricing("codex", "gpt-5.1-codex-high")?.modelId).toBe("gpt-5.3-codex");
+  });
 });

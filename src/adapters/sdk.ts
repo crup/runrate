@@ -27,14 +27,6 @@ export interface DetectedSource {
   accountId?: string | undefined;
 }
 
-export interface Checkpoint {
-  sourceId: string;
-  cursor: string;
-  trailingHash?: string | undefined;
-  parserVersion: string;
-  updatedAt: string;
-}
-
 export interface RawAdapterRecord {
   key: string;
   ts: string;
@@ -46,8 +38,6 @@ export interface RawAdapterRecord {
 
 export interface ScanContext {
   sinceMs?: number | undefined;
-  maxFiles?: number | undefined;
-  newestFirst?: boolean | undefined;
 }
 
 export interface NormalizeContext {
@@ -62,11 +52,7 @@ export interface UsageAdapter {
   version: string;
   capabilities: AdapterCapabilities;
   detect(ctx: DetectContext): Promise<DetectedSource[]>;
-  scan(
-    source: DetectedSource,
-    checkpoint?: Checkpoint,
-    ctx?: ScanContext,
-  ): AsyncIterable<RawAdapterRecord>;
+  scan(source: DetectedSource, ctx?: ScanContext): AsyncIterable<RawAdapterRecord>;
   normalize(records: RawAdapterRecord[], ctx: NormalizeContext): Promise<NormalizedUsageEvent[]>;
 }
 

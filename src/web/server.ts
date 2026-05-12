@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { aggregateEvents } from "../core/aggregate.js";
 import type { ActiveScope, PricingMode, RunrateExport } from "../core/event.js";
 import type { WindowPreset } from "../core/windows.js";
@@ -33,10 +35,6 @@ interface WebUsageResponse {
   plot: PlotOption;
   periods: PeriodOption[];
   plots: PlotOption[];
-  compare?: {
-    period: PeriodOption;
-    data: RunrateExport;
-  };
   pollMs: number;
   generatedAt: string;
   data: RunrateExport;
@@ -56,13 +54,14 @@ interface PlotOption {
 interface PeriodRange extends PeriodOption {
   sinceMs: number | null;
   untilMs: number;
-  compare?: PeriodRange | undefined;
 }
 
 const DEFAULT_PORT = 43871;
 const DEFAULT_HOST = "127.0.0.1";
 const MAX_PORT_ATTEMPTS = 64;
 const MAX_CHART_BINS = 160;
+const NORMALIZE_BATCH_SIZE = 2_000;
+const RESPONSE_CACHE_MS = 2_000;
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
 
@@ -84,6 +83,9 @@ const plotOptions: PlotOption[] = [
   { value: "1h", label: "1h", binMs: HOUR_MS },
   { value: "1d", label: "1d", binMs: DAY_MS },
 ];
+
+const responseCache = new Map<string, { expiresAt: number; value: WebUsageResponse }>();
+const inFlightResponses = new Map<string, Promise<WebUsageResponse>>();
 
 export const runWebDashboard = async (options: WebDashboardOptions): Promise<void> => {
   const host = options.host ?? DEFAULT_HOST;
@@ -123,7 +125,7 @@ const handleRequest = async (
     }
 
     if (url.pathname === "/") {
-      sendHtml(response, renderIndexHtml());
+      sendHtml(response, renderIndexHtml(isDevMode()));
       return;
     }
 
@@ -133,8 +135,20 @@ const handleRequest = async (
       return;
     }
 
+    if (url.pathname === "/favicon.png") {
+      sendBinary(response, 200, "image/png", await readPackageAsset("favicon.png"));
+      return;
+    }
+
     if (url.pathname === "/api/usage") {
       sendJson(response, 200, await loadUsageResponse(options, url.searchParams));
+      return;
+    }
+
+    if (url.pathname === "/api/dev/revision" && isDevMode()) {
+      sendJson(response, 200, {
+        revision: process.env.RUNRATE_DEV_REVISION ?? "dev",
+      });
       return;
     }
 
@@ -152,46 +166,96 @@ const loadUsageResponse = async (
 ): Promise<WebUsageResponse> => {
   const period = readPeriod(params.get("period"));
   const plot = readPlot(params.get("plot")).value;
-  const compare = params.get("compare") === "1";
   const provider = params.get("provider") || options.provider;
   const model = params.get("model") || options.model;
-  const result = await loadDashboardData(options, period, plot, compare, provider, model);
+  const cacheKey = JSON.stringify({
+    model,
+    period,
+    plot,
+    provider,
+    pricingMode: options.pricingMode,
+    scope: options.initialScope,
+    timezone: options.timezone,
+  });
+  const cached = responseCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+  const existing = inFlightResponses.get(cacheKey);
+  if (existing) {
+    return existing;
+  }
 
-  return {
-    period: periodOptions.find((item) => item.value === period) ?? periodOptions[0]!,
+  const pending = loadUsageResponseUncached(options, {
+    cacheKey,
+    model,
+    period,
+    plot,
+    provider,
+  });
+  inFlightResponses.set(cacheKey, pending);
+  try {
+    return await pending;
+  } finally {
+    inFlightResponses.delete(cacheKey);
+  }
+};
+
+const loadUsageResponseUncached = async (
+  options: WebDashboardOptions,
+  args: {
+    cacheKey: string;
+    model?: string | undefined;
+    period: PeriodPreset;
+    plot: PlotPreset;
+    provider?: string | undefined;
+  },
+): Promise<WebUsageResponse> => {
+  const result = await loadDashboardData(
+    options,
+    args.period,
+    args.plot,
+    args.provider,
+    args.model,
+  );
+
+  const value = {
+    period: periodOptions.find((item) => item.value === args.period) ?? periodOptions[0]!,
     plot: result.plot,
     periods: periodOptions,
     plots: plotOptions,
-    ...(result.compare ? { compare: result.compare } : {}),
     pollMs: result.pollMs,
     generatedAt: new Date().toISOString(),
     data: result.data,
   };
+  responseCache.set(args.cacheKey, {
+    expiresAt: Date.now() + RESPONSE_CACHE_MS,
+    value,
+  });
+  return value;
 };
 
 const loadDashboardData = async (
   options: WebDashboardOptions,
   period: PeriodPreset,
   plot: PlotPreset,
-  compare: boolean,
   provider?: string | undefined,
   model?: string | undefined,
 ): Promise<{
   data: RunrateExport;
-  compare?: { period: PeriodOption; data: RunrateExport } | undefined;
   plot: PlotOption;
   pollMs: number;
 }> => {
   const now = new Date();
   const range = resolvePeriodRange(period, now);
-  const compareRange = compare ? range.compare : undefined;
   const rangeDurationMs = Math.max(1, range.untilMs - (range.sinceMs ?? range.untilMs));
   const binMs = plot === "auto" ? chooseBinMs(rangeDurationMs) : readPlot(plot).binMs!;
-  const scanSinceMs = minimumSince(range, compareRange, binMs);
+  const scanSinceMs = minimumSince(range, binMs);
   const { events } = await collectUsageEvents({
     pricingMode: options.pricingMode,
     timezone: options.timezone,
     sinceMs: scanSinceMs,
+    normalizeBatchSize: NORMALIZE_BATCH_SIZE,
   });
 
   const data = aggregateEvents(events, {
@@ -207,33 +271,8 @@ const loadDashboardData = async (
     model,
   });
 
-  const compareData = compareRange
-    ? aggregateEvents(events, {
-        window: options.initialWindow,
-        windowLabel: compareRange.label,
-        sinceMs: compareRange.sinceMs,
-        untilMs: compareRange.untilMs,
-        binMs,
-        maxBins: MAX_CHART_BINS,
-        scope: options.initialScope,
-        pricingMode: options.pricingMode,
-        provider,
-        model,
-      })
-    : undefined;
-
   return {
     data,
-    compare:
-      compareRange && compareData
-        ? {
-            period: {
-              value: compareRange.value,
-              label: compareRange.label,
-            },
-            data: compareData,
-          }
-        : undefined,
     plot: {
       value: plot,
       label: plot === "auto" ? `Auto (${formatBin(binMs)})` : readPlot(plot).label,
@@ -251,101 +290,45 @@ const resolvePeriodRange = (period: PeriodPreset, now: Date): PeriodRange => {
   const lastWeek = addDays(week, -7);
   const month = startOfMonth(now);
   const lastMonth = addMonths(month, -1);
-  const monthBeforeLast = addMonths(month, -2);
 
   switch (period) {
     case "yesterday":
-      return withCompare(
-        {
-          value: period,
-          label: "Yesterday",
-          sinceMs: yesterday.getTime(),
-          untilMs: today.getTime(),
-        },
-        {
-          value: "yesterday",
-          label: "Previous day",
-          sinceMs: addDays(today, -2).getTime(),
-          untilMs: yesterday.getTime(),
-        },
-      );
+      return {
+        value: period,
+        label: "Yesterday",
+        sinceMs: yesterday.getTime(),
+        untilMs: today.getTime(),
+      };
     case "this-week":
-      return withCompare(
-        { value: period, label: "This week", sinceMs: week.getTime(), untilMs: nowMs },
-        {
-          value: "last-week",
-          label: "Last week",
-          sinceMs: lastWeek.getTime(),
-          untilMs: Math.min(week.getTime(), lastWeek.getTime() + (nowMs - week.getTime())),
-        },
-      );
+      return { value: period, label: "This week", sinceMs: week.getTime(), untilMs: nowMs };
     case "last-week":
-      return withCompare(
-        { value: period, label: "Last week", sinceMs: lastWeek.getTime(), untilMs: week.getTime() },
-        {
-          value: "last-week",
-          label: "Previous week",
-          sinceMs: addDays(week, -14).getTime(),
-          untilMs: lastWeek.getTime(),
-        },
-      );
+      return {
+        value: period,
+        label: "Last week",
+        sinceMs: lastWeek.getTime(),
+        untilMs: week.getTime(),
+      };
     case "this-month":
-      return withCompare(
-        { value: period, label: "This month", sinceMs: month.getTime(), untilMs: nowMs },
-        {
-          value: "last-month",
-          label: "Last month",
-          sinceMs: lastMonth.getTime(),
-          untilMs: Math.min(month.getTime(), lastMonth.getTime() + (nowMs - month.getTime())),
-        },
-      );
+      return { value: period, label: "This month", sinceMs: month.getTime(), untilMs: nowMs };
     case "last-month":
-      return withCompare(
-        {
-          value: period,
-          label: "Last month",
-          sinceMs: lastMonth.getTime(),
-          untilMs: month.getTime(),
-        },
-        {
-          value: "last-month",
-          label: "Previous month",
-          sinceMs: monthBeforeLast.getTime(),
-          untilMs: lastMonth.getTime(),
-        },
-      );
+      return {
+        value: period,
+        label: "Last month",
+        sinceMs: lastMonth.getTime(),
+        untilMs: month.getTime(),
+      };
     case "all-time":
       return { value: period, label: "All time", sinceMs: null, untilMs: nowMs };
     case "today":
-      return withCompare(
-        { value: period, label: "Today", sinceMs: today.getTime(), untilMs: nowMs },
-        {
-          value: "yesterday",
-          label: "Yesterday",
-          sinceMs: yesterday.getTime(),
-          untilMs: Math.min(today.getTime(), yesterday.getTime() + (nowMs - today.getTime())),
-        },
-      );
+      return { value: period, label: "Today", sinceMs: today.getTime(), untilMs: nowMs };
   }
 };
 
-const withCompare = (range: PeriodRange, compare: PeriodRange): PeriodRange => ({
-  ...range,
-  compare,
-});
-
-const minimumSince = (
-  range: PeriodRange,
-  compareRange: PeriodRange | undefined,
-  binMs: number,
-): number | undefined => {
+const minimumSince = (range: PeriodRange, binMs: number): number | undefined => {
   if (range.sinceMs === null) {
     return undefined;
   }
-  const candidates = [range.sinceMs, compareRange?.sinceMs].filter(
-    (value): value is number => typeof value === "number",
-  );
-  return Math.max(0, Math.min(...candidates) - binMs);
+  return Math.max(0, range.sinceMs - binMs);
 };
 
 const readPeriod = (value: string | null): PeriodPreset => {
@@ -474,16 +457,55 @@ const parsePort = (value: string | number | undefined): number => {
   return port;
 };
 
-const renderIndexHtml = (): string => `<!doctype html>
+const isDevMode = (): boolean => process.env.RUNRATE_DEV === "1";
+
+const readPackageAsset = async (name: string): Promise<Buffer> => {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    join(moduleDir, "..", "assets", name),
+    join(moduleDir, "..", "..", "assets", name),
+  ];
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return await readFile(candidate);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`Unable to read asset ${name}`);
+};
+
+const renderIndexHtml = (devMode: boolean): string => `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <title>Runrate</title>
   </head>
   <body>
     <div id="root"></div>
     <script src="/web/app.js"></script>
+    ${
+      devMode
+        ? `<script>
+      (() => {
+        let current = "";
+        const check = async () => {
+          try {
+            const response = await fetch("/api/dev/revision", { cache: "no-store" });
+            const data = await response.json();
+            if (current && data.revision !== current) location.reload();
+            current = data.revision;
+          } catch {}
+        };
+        setInterval(check, 1000);
+        void check();
+      })();
+    </script>`
+        : ""
+    }
   </body>
 </html>`;
 
@@ -497,6 +519,19 @@ const sendText = (response: ServerResponse, status: number, body: string): void 
 
 const sendJson = (response: ServerResponse, status: number, body: unknown): void => {
   send(response, status, "application/json; charset=utf-8", JSON.stringify(body));
+};
+
+const sendBinary = (
+  response: ServerResponse,
+  status: number,
+  contentType: string,
+  body: Buffer,
+): void => {
+  response.writeHead(status, {
+    "content-type": contentType,
+    "cache-control": "no-store",
+  });
+  response.end(body);
 };
 
 const send = (

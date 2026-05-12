@@ -1,0 +1,36 @@
+name: Adapter request
+description: Request support for another local AI coding tool or usage format.
+title: "adapter: "
+labels: ["adapter", "enhancement"]
+body:
+  - type: input
+    id: tool
+    attributes:
+      label: Tool or provider
+      placeholder: "Example: Gemini CLI, Cursor, OpenCode"
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Local usage artifacts
+      description: Where does the tool store usage data, and what file format does it use?
+      placeholder: "Example: ~/.tool/sessions/*.jsonl with token usage events"
+    validations:
+      required: false
+  - type: textarea
+    id: fields
+    attributes:
+      label: Useful fields
+      description: List the timestamp, session id, workspace, model, token, and cost fields if you know them.
+      render: markdown
+    validations:
+      required: false
+  - type: textarea
+    id: fixture
+    attributes:
+      label: Redacted fixture
+      description: Paste only a tiny redacted sample. Do not include prompts, secrets, API keys, private repo names, or raw private logs.
+      render: markdown
+    validations:
+      required: false

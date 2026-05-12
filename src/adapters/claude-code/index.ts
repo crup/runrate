@@ -15,7 +15,7 @@ import {
   hashString,
   listFilesRecursive,
   pathExists,
-  readCompleteJsonl,
+  readJsonl,
 } from "../../utils/fs.js";
 
 const ADAPTER_VERSION = "0.1.0";
@@ -58,11 +58,7 @@ export const claudeCodeAdapter: UsageAdapter = {
 
     return sources;
   },
-  async *scan(
-    source: DetectedSource,
-    _checkpoint,
-    ctx?: ScanContext,
-  ): AsyncIterable<RawAdapterRecord> {
+  async *scan(source: DetectedSource, ctx?: ScanContext): AsyncIterable<RawAdapterRecord> {
     const roots = [path.join(source.path, "projects")];
 
     for (const root of roots) {
@@ -75,8 +71,7 @@ export const claudeCodeAdapter: UsageAdapter = {
           filePath.endsWith(".jsonl") && fileMayContainUsageSince(filePath, ctx?.sinceMs),
       );
       for (const filePath of files) {
-        const records = await readCompleteJsonl(filePath);
-        for (const record of records) {
+        for await (const record of readJsonl(filePath)) {
           yield {
             key: `${filePath}:${record.lineNumber}`,
             ts: timestampOf(record.value) ?? new Date(0).toISOString(),
@@ -98,6 +93,7 @@ export const claudeCodeAdapter: UsageAdapter = {
     ctx: NormalizeContext,
   ): Promise<NormalizedUsageEvent[]> {
     const events: NormalizedUsageEvent[] = [];
+    const processedHashes = new Set<string>();
 
     for (const record of records) {
       const payload = unwrapPayload(record.payload);
@@ -108,6 +104,13 @@ export const claudeCodeAdapter: UsageAdapter = {
       if (!usage) {
         continue;
       }
+      const uniqueHash = claudeUniqueHash(payload.value);
+      if (uniqueHash) {
+        if (processedHashes.has(uniqueHash)) {
+          continue;
+        }
+        processedHashes.add(uniqueHash);
+      }
       const timestamp = timestampOf(payload.value) ?? new Date().toISOString();
       const sessionId =
         stringAt(payload.value, "sessionId") ??
@@ -115,7 +118,7 @@ export const claudeCodeAdapter: UsageAdapter = {
         path.basename(payload.filePath, ".jsonl");
       const cwd = stringAt(payload.value, "cwd") ?? inferWorkspaceFromClaudePath(payload.filePath);
       const modelId = modelOf(payload.value) ?? "unknown";
-      const vendorUsd = numberAt(payload.value, "costUSD") ?? numberAt(payload.value, "cost_usd");
+      const vendorUsd = costOf(payload.value);
       const cost = resolveCost({
         usage,
         provider: "claude-code",
@@ -125,14 +128,17 @@ export const claudeCodeAdapter: UsageAdapter = {
       });
 
       events.push({
-        id: stableId(`${payload.filePath}:${payload.lineNumber}:${JSON.stringify(usage)}`),
+        id: stableId(
+          uniqueHash ?? `${payload.filePath}:${payload.lineNumber}:${JSON.stringify(usage)}`,
+        ),
         provider: "claude-code",
         installationId: record.source.installationId,
         accountId: record.source.accountId,
         workspaceId: cwd,
         workspaceLabel: cwd ? path.basename(cwd) : undefined,
         nativeSessionId: sessionId,
-        logicalRequestId: `${sessionId}:${payload.lineNumber}`,
+        logicalRequestId:
+          stringAt(payload.value, "requestId") ?? `${sessionId}:${payload.lineNumber}`,
         occurredAt: timestamp,
         firstSeenAt: timestamp,
         lastSeenAt: timestamp,
@@ -176,13 +182,28 @@ const claudeUsage = (value: unknown): TokenSnapshot | null => {
   }
 
   return {
-    inputFresh: Math.max(0, input - cacheRead),
+    inputFresh: input,
     output,
     reasoning: 0,
     cacheRead,
     cacheWrite,
   };
 };
+
+const claudeUniqueHash = (value: unknown): string | null => {
+  const message = objectAt(value, "message");
+  const messageId = stringAt(message, "id");
+  const requestId = stringAt(value, "requestId");
+  if (!messageId || !requestId) {
+    return null;
+  }
+  return `${messageId}:${requestId}`;
+};
+
+const costOf = (value: unknown): number | undefined =>
+  numberAt(value, "costUSD") ??
+  numberAt(value, "cost_usd") ??
+  numberAt(objectAt(value, "cost"), "total_cost_usd");
 
 const fileMayContainUsageSince = (filePath: string, sinceMs: number | undefined): boolean => {
   if (!sinceMs) {

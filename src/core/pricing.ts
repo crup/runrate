@@ -21,6 +21,11 @@ const providerPricingAliases: Record<string, string> = {
   codex: "openai",
 };
 
+const modelPricingAliases: Record<string, string> = {
+  "gpt-5.2-low": "gpt-5",
+  "gpt-5.1-codex-high": "gpt-5.3-codex",
+};
+
 export const findPricing = (
   provider: string,
   modelId: string,
@@ -28,7 +33,8 @@ export const findPricing = (
 ): ModelPricing | null => {
   const rawProvider = provider.trim().toLowerCase();
   const normalizedProvider = providerPricingAliases[rawProvider] ?? rawProvider;
-  const normalizedModel = normalizeModelId(modelId);
+  const rawModel = normalizeModelId(modelId);
+  const normalizedModel = modelPricingAliases[rawModel] ?? rawModel;
   return (
     table.find(
       (pricing) =>

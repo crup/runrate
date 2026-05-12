@@ -27,6 +27,7 @@ describe("Claude Code adapter", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.provider).toBe("claude-code");
+    expect(events[0]?.usage.inputFresh).toBe(1000);
     expect(events[0]?.usage.cacheRead).toBe(600);
     expect(events[0]?.cost.effectiveUsd).toBe(0.0123);
   });

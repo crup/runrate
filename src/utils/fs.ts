@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { createInterface } from "node:readline";
 
 export interface JsonlRecord {
   value: unknown;
@@ -59,17 +61,14 @@ export const listFilesRecursive = async (
   return files;
 };
 
-export const readCompleteJsonl = async (filePath: string): Promise<JsonlRecord[]> => {
-  const buffer = await fs.readFile(filePath);
-  const text = buffer.toString("utf8");
-  const hasTrailingNewline = text.endsWith("\n");
-  const rawLines = text.split("\n");
-  const completeLines = hasTrailingNewline ? rawLines.slice(0, -1) : rawLines.slice(0, -1);
-  const records: JsonlRecord[] = [];
+export async function* readJsonl(filePath: string): AsyncIterable<JsonlRecord> {
+  const stream = createReadStream(filePath, { encoding: "utf8" });
+  const lines = createInterface({ crlfDelay: Infinity, input: stream });
   let offset = 0;
+  let lineNumber = 0;
 
-  for (let index = 0; index < completeLines.length; index += 1) {
-    const line = completeLines[index] ?? "";
+  for await (const line of lines) {
+    lineNumber += 1;
     const lineBytes = Buffer.byteLength(line, "utf8");
     const byteStart = offset;
     const byteEnd = byteStart + lineBytes;
@@ -80,31 +79,27 @@ export const readCompleteJsonl = async (filePath: string): Promise<JsonlRecord[]
     }
 
     try {
-      records.push({
+      yield {
         value: JSON.parse(line),
-        lineNumber: index + 1,
+        lineNumber,
         byteStart,
         byteEnd,
         cursor: `${filePath}:${byteEnd}`,
-      });
+      };
     } catch {
-      if (index !== completeLines.length - 1) {
-        records.push({
-          value: {
-            malformed: true,
-            rawHash: hashString(line),
-          },
-          lineNumber: index + 1,
-          byteStart,
-          byteEnd,
-          cursor: `${filePath}:${byteEnd}`,
-        });
-      }
+      yield {
+        value: {
+          malformed: true,
+          rawHash: hashString(line),
+        },
+        lineNumber,
+        byteStart,
+        byteEnd,
+        cursor: `${filePath}:${byteEnd}`,
+      };
     }
   }
-
-  return records;
-};
+}
 
 export const hashString = (value: string): string =>
   createHash("sha256").update(value).digest("hex").slice(0, 16);

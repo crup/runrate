@@ -1,6 +1,15 @@
 [
   {
     "provider": "openai",
+    "modelId": "gpt-5",
+    "inputPerMillionUsd": 1.25,
+    "outputPerMillionUsd": 10,
+    "cacheReadPerMillionUsd": 0.125,
+    "updatedAt": "2026-05-11",
+    "source": "bundled"
+  },
+  {
+    "provider": "openai",
     "modelId": "gpt-5.5",
     "inputPerMillionUsd": 5,
     "outputPerMillionUsd": 30,
