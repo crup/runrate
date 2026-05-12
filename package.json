@@ -56,8 +56,8 @@
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.49.0",
-    "vitest": "^4.0.15"
+    "typescript-eslint": "^8.59.3",
+    "vitest": "^4.1.6"
   },
   "publishConfig": {
     "access": "public",
