@@ -11,18 +11,18 @@
 [![Good first issues](https://img.shields.io/github/issues/crup/runrate/good%20first%20issue?label=good%20first%20issues)](https://github.com/crup/runrate/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22)
 [![Contributors](https://img.shields.io/github/contributors/crup/runrate)](https://github.com/crup/runrate/graphs/contributors)
 [![Last commit](https://img.shields.io/github/last-commit/crup/runrate)](https://github.com/crup/runrate/commits/main)
-[![Status](https://img.shields.io/badge/status-1.1%20ready-22c55e)](#status)
+[![Status](https://img.shields.io/badge/status-1.1.1%20ready-22c55e)](#status)
 [![Tests](https://img.shields.io/badge/tests-vitest%207%20passing-22c55e)](#development)
 
 ```bash
 npx @crup/runrate
 ```
 
-Runrate opens a local React dashboard for the usage data your coding agents already write to disk. No hosted account. No proxy. No remote collector. Version `1.1.0` adds a Codex session cost debugger for finding the prompt/tool checkpoints behind usage spikes.
+Runrate opens a local React dashboard for the usage data your coding agents already write to disk. No hosted account. No proxy. No remote collector. Version `1.1.1` fixes fine-grained charts so the graph covers the full selected period and includes cache-token volume.
 
 ![Runrate dark dashboard](assets/readme/dark.png)
 
-The README screenshots are from real local Codex usage in the 30-day, 15-minute, log-scale workspace view. Private project names are masked as `******`, session ids are masked as `***`, and debugger prompt/tool context is masked as `** masked **`. Public/open project names such as `runrate`, `port`, and `react-timer-hook` are left visible.
+The README screenshots are from real local Codex usage in the All time, 1-day, workspace view. Private project names are masked as `******`, session ids are masked as `***`, and debugger prompt/tool context is masked as `** masked **`. The public `oss` workspace is left visible.
 
 <details>
 <summary>Light mode screenshot</summary>
@@ -272,7 +272,7 @@ Runrate is local-first:
 
 Provider logs may contain sensitive prompts, file paths, repo names, session ids, or workspace metadata. Do not paste raw logs into public issues. Please share small redacted fixtures instead.
 
-The README screenshots are generated from real local Codex usage. Private project names are masked as `******`, session ids are masked as `***`, debugger prompt/tool context is masked as `** masked **`, and public/open project names such as `runrate`, `port`, and `react-timer-hook` are left visible.
+The README screenshots are generated from real local Codex usage. Private project names are masked as `******`, session ids are masked as `***`, debugger prompt/tool context is masked as `** masked **`, and the public `oss` workspace is left visible.
 
 ## Development
 

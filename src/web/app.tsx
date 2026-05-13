@@ -47,7 +47,7 @@ type SessionState = "active" | "idle" | "stale" | "closed";
 type ViewKey = "overview" | "sessions" | "models" | "costs" | "settings";
 type ChartScale = "linear" | "log";
 type SessionListMode = "workspace" | "session";
-type TokenSeriesKey = "input" | "output" | "reasoning";
+type TokenSeriesKey = "input" | "output" | "reasoning" | "cacheRead" | "cacheWrite";
 type RefreshIntervalMs = 15_000 | 30_000 | 60_000 | 300_000;
 type CheckpointDriverFilter = "all" | "input" | "output" | "reasoning" | "cache";
 type CheckpointSort = "cost" | "tokens" | "time";
@@ -170,6 +170,7 @@ interface ChartPoint {
   reasoning: number;
   start: string;
   cacheRead: number;
+  cacheWrite: number;
   cost: number;
   tickLabel: string;
   total: number;
@@ -231,10 +232,48 @@ const tokenColors = [
 const prefsKey = "runrate:prefs:v1";
 const viewKeys: ViewKey[] = ["overview", "sessions", "models", "costs", "settings"];
 const chartScales: ChartScale[] = ["linear", "log"];
-const tokenSeries: Array<{ color: string; key: TokenSeriesKey; label: string }> = [
-  { color: "var(--token-input)", key: "input", label: "Input" },
-  { color: "var(--token-output)", key: "output", label: "Output" },
-  { color: "var(--token-reasoning)", key: "reasoning", label: "Reasoning" },
+const tokenSeries: Array<{
+  color: string;
+  gradientId: string;
+  key: TokenSeriesKey;
+  label: string;
+  plotKey: `${TokenSeriesKey}Plot`;
+}> = [
+  {
+    color: "var(--token-cache-write)",
+    gradientId: "g-cache-write",
+    key: "cacheWrite",
+    label: "Cache write",
+    plotKey: "cacheWritePlot",
+  },
+  {
+    color: "var(--token-cache-read)",
+    gradientId: "g-cache-read",
+    key: "cacheRead",
+    label: "Cache read",
+    plotKey: "cacheReadPlot",
+  },
+  {
+    color: "var(--token-reasoning)",
+    gradientId: "g-reason",
+    key: "reasoning",
+    label: "Reasoning",
+    plotKey: "reasoningPlot",
+  },
+  {
+    color: "var(--token-output)",
+    gradientId: "g-output",
+    key: "output",
+    label: "Output",
+    plotKey: "outputPlot",
+  },
+  {
+    color: "var(--token-input)",
+    gradientId: "g-input",
+    key: "input",
+    label: "Input",
+    plotKey: "inputPlot",
+  },
 ];
 const categoryColorById: Record<string, string> = {
   coding: "var(--category-coding)",
@@ -1042,6 +1081,8 @@ function PrimaryChart({
     () =>
       chartData.map((point) => ({
         ...point,
+        cacheReadPlot: scale === "log" ? logValue(point.cacheRead) : point.cacheRead,
+        cacheWritePlot: scale === "log" ? logValue(point.cacheWrite) : point.cacheWrite,
         inputPlot: scale === "log" ? logValue(point.input) : point.input,
         outputPlot: scale === "log" ? logValue(point.output) : point.output,
         reasoningPlot: scale === "log" ? logValue(point.reasoning) : point.reasoning,
@@ -1108,18 +1149,12 @@ function PrimaryChart({
         <ResponsiveContainer height="100%" width="100%">
           <AreaChart data={plotData} margin={{ bottom: 0, left: 0, right: 8, top: 8 }}>
             <defs>
-              <linearGradient id="g-input" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="var(--token-input)" stopOpacity={0.5} />
-                <stop offset="100%" stopColor="var(--token-input)" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="g-output" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="var(--token-output)" stopOpacity={0.45} />
-                <stop offset="100%" stopColor="var(--token-output)" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="g-reason" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="var(--token-reasoning)" stopOpacity={0.4} />
-                <stop offset="100%" stopColor="var(--token-reasoning)" stopOpacity={0} />
-              </linearGradient>
+              {tokenSeries.map((series) => (
+                <linearGradient id={series.gradientId} key={series.key} x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor={series.color} stopOpacity={0.44} />
+                  <stop offset="100%" stopColor={series.color} stopOpacity={0} />
+                </linearGradient>
+              ))}
             </defs>
             <CartesianGrid stroke="var(--border)" strokeDasharray="2 4" vertical={false} />
             <XAxis
@@ -1148,39 +1183,20 @@ function PrimaryChart({
               content={<ChartTooltip />}
               cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
             />
-            {visibleSeries.has("reasoning") ? (
-              <Area
-                dataKey="reasoningPlot"
-                fill="url(#g-reason)"
-                name="reasoning"
-                stroke="var(--token-reasoning)"
-                strokeWidth={1.5}
-                type="monotone"
-                {...(scale === "linear" ? { stackId: "1" } : {})}
-              />
-            ) : null}
-            {visibleSeries.has("output") ? (
-              <Area
-                dataKey="outputPlot"
-                fill="url(#g-output)"
-                name="output"
-                stroke="var(--token-output)"
-                strokeWidth={1.5}
-                type="monotone"
-                {...(scale === "linear" ? { stackId: "1" } : {})}
-              />
-            ) : null}
-            {visibleSeries.has("input") ? (
-              <Area
-                dataKey="inputPlot"
-                fill="url(#g-input)"
-                name="input"
-                stroke="var(--token-input)"
-                strokeWidth={1.5}
-                type="monotone"
-                {...(scale === "linear" ? { stackId: "1" } : {})}
-              />
-            ) : null}
+            {tokenSeries.map((series) =>
+              visibleSeries.has(series.key) ? (
+                <Area
+                  dataKey={series.plotKey}
+                  fill={`url(#${series.gradientId})`}
+                  key={series.key}
+                  name={series.key}
+                  stroke={series.color}
+                  strokeWidth={1.5}
+                  type="monotone"
+                  {...(scale === "linear" ? { stackId: "1" } : {})}
+                />
+              ) : null,
+            )}
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -1202,7 +1218,7 @@ function ChartTooltip({ active, payload }: any) {
         return (
           <div className="tooltip-row" key={item.dataKey}>
             <span style={{ background: item.color }} />
-            <p>{labelKey}</p>
+            <p>{formatSeriesLabel(labelKey)}</p>
             <strong>
               {labelKey.toLowerCase().includes("cost")
                 ? formatCost(rawValue)
@@ -2302,6 +2318,7 @@ function toChartData(bins: UsageBin[]): ChartPoint[] {
   const tickLabels = formatTickLabels(bins);
   return bins.map((bin, index) => ({
     cacheRead: bin.totals.cacheRead,
+    cacheWrite: bin.totals.cacheWrite,
     cost: bin.totals.costUsd,
     end: bin.end,
     input: bin.totals.inputFresh,
@@ -2313,6 +2330,11 @@ function toChartData(bins: UsageBin[]): ChartPoint[] {
     tickLabel: tickLabels[index] ?? "",
     total: bin.totals.totalTokens,
   }));
+}
+
+function formatSeriesLabel(value: string): string {
+  const series = tokenSeries.find((item) => item.key === value);
+  return series?.label ?? value;
 }
 
 function toUiSession(session: SessionSummary): UiSession {

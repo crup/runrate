@@ -1,6 +1,6 @@
 {
   "name": "@crup/runrate",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Realtime token, cache, and cost telemetry for AI coding agents.",
   "type": "module",
   "license": "MIT",

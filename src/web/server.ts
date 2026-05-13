@@ -61,7 +61,6 @@ interface PeriodRange extends PeriodOption {
 const DEFAULT_PORT = 43871;
 const DEFAULT_HOST = "127.0.0.1";
 const MAX_PORT_ATTEMPTS = 64;
-const MAX_CHART_BINS = 160;
 const NORMALIZE_BATCH_SIZE = 2_000;
 const RESPONSE_CACHE_MS = 2_000;
 const HOUR_MS = 60 * 60_000;
@@ -303,7 +302,6 @@ const loadDashboardData = async (
     sinceMs: range.sinceMs,
     untilMs: range.untilMs,
     binMs,
-    maxBins: MAX_CHART_BINS,
     scope: options.initialScope,
     pricingMode: options.pricingMode,
     provider,

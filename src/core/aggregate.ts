@@ -22,7 +22,6 @@ export interface AggregateOptions {
   sinceMs?: number | null | undefined;
   untilMs?: number | undefined;
   binMs?: number | undefined;
-  maxBins?: number | undefined;
   windowLabel?: string | undefined;
   scope: ActiveScope;
   pricingMode: PricingMode;
@@ -115,7 +114,6 @@ export const aggregateEvents = (
   const sinceMs =
     options.sinceMs === null ? null : (options.sinceMs ?? untilMs - preset.durationMs);
   const binMs = options.binMs ?? preset.binMs;
-  const maxBins = options.maxBins ?? Number.POSITIVE_INFINITY;
 
   const filtered = events.filter((event) => eventPassesFilters(event, options, sinceMs, untilMs));
   filtered.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
@@ -161,9 +159,7 @@ export const aggregateEvents = (
   const firstEventMs = Date.parse(filtered[0]?.occurredAt ?? new Date(untilMs).toISOString());
   const rangeStartMs = sinceMs ?? firstEventMs;
   const lastBin = floorToBin(untilMs, binMs);
-  const maxBinsStartMs =
-    Number.isFinite(maxBins) && maxBins > 0 ? lastBin - (maxBins - 1) * binMs : rangeStartMs;
-  const firstBin = floorToBin(Math.max(rangeStartMs, maxBinsStartMs), binMs);
+  const firstBin = floorToBin(rangeStartMs, binMs);
   for (let start = firstBin; start <= lastBin; start += binMs) {
     const accumulator = binAccumulators.get(start) ?? createAccumulator();
     bins.push({
