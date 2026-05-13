@@ -22,7 +22,7 @@ Runrate opens a local React dashboard for the usage data your coding agents alre
 
 ![Runrate dark dashboard](assets/readme/dark.png)
 
-The README screenshots are from real local Codex usage in the All time, 1-day, workspace view. Private project names are masked as `******`, session ids are masked as `***`, and debugger prompt/tool context is masked as `** masked **`. The public `oss` workspace is left visible.
+The README screenshots are from real local Codex usage in the All time, 1-day, full overview dashboard with workspace-grouped sessions. Private project names are masked as `******`, session ids are masked as `***`, and debugger prompt/tool context is masked as `** masked **`. The public `oss` workspace is left visible.
 
 <details>
 <summary>Light mode screenshot</summary>
@@ -272,7 +272,7 @@ Runrate is local-first:
 
 Provider logs may contain sensitive prompts, file paths, repo names, session ids, or workspace metadata. Do not paste raw logs into public issues. Please share small redacted fixtures instead.
 
-The README screenshots are generated from real local Codex usage. Private project names are masked as `******`, session ids are masked as `***`, debugger prompt/tool context is masked as `** masked **`, and the public `oss` workspace is left visible.
+The README screenshots are generated from real local Codex usage in the All time, 1-day, full overview dashboard with workspace-grouped sessions. Private project names are masked as `******`, session ids are masked as `***`, debugger prompt/tool context is masked as `** masked **`, and the public `oss` workspace is left visible.
 
 ## Development
 
